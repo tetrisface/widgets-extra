@@ -1,19 +1,32 @@
 -- This is the widget's complete remote-connection policy and its only
 -- production remote-I/O module:
---   POST JSON to http://d29i3oohxql6zz.cloudfront.net:80/stats
+--   POST JSON to one of three compile-time allowlisted paths on
+--   http://d29i3oohxql6zz.cloudfront.net:80
 --   accept JSON; represent every request as an independent non-blocking operation
 --   enforce a 30-second attempt deadline, 256 KiB request-body limit,
 --   64 KiB response-header limit, and 1 MiB response-body limit
 --   do not redirect, authenticate, retain cookies, download or write files,
 --   or interpret response data as executable content
--- Callers cannot supply or override the destination.
+-- Callers can select an allowlisted purpose, but cannot supply a destination.
 
 local Remote = {}
 
-local TARGET = {
-	host = "d29i3oohxql6zz.cloudfront.net",
-	port = 80,
-	path = "/stats",
+local TARGETS = {
+	stats = {
+		host = "d29i3oohxql6zz.cloudfront.net",
+		port = 80,
+		path = "/api/v1/stats",
+	},
+	stats_compat = {
+		host = "d29i3oohxql6zz.cloudfront.net",
+		port = 80,
+		path = "/stats",
+	},
+	game_events = {
+		host = "d29i3oohxql6zz.cloudfront.net",
+		port = 80,
+		path = "/api/v1/live-games/events",
+	},
 }
 
 local METHOD = "POST"
@@ -53,10 +66,10 @@ local function FinishError(operation, err)
 	return nil, err, true, operation.meta
 end
 
-local function BuildHttpRequest(body)
+local function BuildHttpRequest(target, body)
 	return table.concat({
-		METHOD .. " " .. TARGET.path .. " HTTP/1.1\r\n",
-		"Host: " .. TARGET.host .. ":" .. tostring(TARGET.port) .. "\r\n",
+		METHOD .. " " .. target.path .. " HTTP/1.1\r\n",
+		"Host: " .. target.host .. ":" .. tostring(target.port) .. "\r\n",
 		"Content-Type: " .. CONTENT_TYPE .. "\r\n",
 		"Accept: " .. CONTENT_TYPE .. "\r\n",
 		"Content-Length: " .. tostring(#body) .. "\r\n",
@@ -166,17 +179,21 @@ local function AppendResponse(operation, value)
 	return CheckBufferedLimits(operation)
 end
 
-function Remote.Target()
+function Remote.Target(targetName)
+	local target = TARGETS[targetName or "stats"]
+	if not target then return nil end
 	return {
-		host = TARGET.host,
-		port = TARGET.port,
-		path = TARGET.path,
+		host = target.host,
+		port = target.port,
+		path = target.path,
 		method = METHOD,
 		content_type = CONTENT_TYPE,
 	}
 end
 
-function Remote.Start(socketApi, jsonBody, startedSeconds)
+function Remote.Start(socketApi, jsonBody, startedSeconds, targetName)
+	local target = TARGETS[targetName or "stats"]
+	if not target then return nil, Error("invalid_remote_target", false) end
 	if type(jsonBody) ~= "string" or jsonBody == "" then
 		return nil, Error("invalid_request_body", false)
 	end
@@ -205,7 +222,7 @@ function Remote.Start(socketApi, jsonBody, startedSeconds)
 		pcall(client.close, client)
 		return nil, Error("socket_setup_failed", false)
 	end
-	local connectOk, connected, connectErr = pcall(client.connect, client, TARGET.host, TARGET.port)
+	local connectOk, connected, connectErr = pcall(client.connect, client, target.host, target.port)
 	if not connectOk then
 		pcall(client.close, client)
 		return nil, Error("connect_failed", true)
@@ -220,7 +237,7 @@ function Remote.Start(socketApi, jsonBody, startedSeconds)
 		socketApi = socketApi,
 		client = client,
 		phase = connected and "sending" or "connecting",
-		request = BuildHttpRequest(body),
+		request = BuildHttpRequest(target, body),
 		sentBytes = 0,
 		responseParts = {},
 		deadlineSeconds = started + ATTEMPT_TIMEOUT_SECONDS,

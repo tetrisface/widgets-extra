@@ -47,6 +47,7 @@ local Diagnostics = VFS.Include(INCLUDE_PATH .. "diagnostics.lua").New(Display)
 local ViewModel = VFS.Include(INCLUDE_PATH .. "view_model.lua").New(Display, PlayerStats, Histogram, Diagnostics)
 local Remote = VFS.Include(INCLUDE_PATH .. "remote.lua")
 local Fetch = VFS.Include(INCLUDE_PATH .. "fetch.lua")
+local GameOverEvent = VFS.Include(INCLUDE_PATH .. "game_over.lua")
 local Json = Json or VFS.Include("common/luaUtilities/json.lua")
 
 -- This is the only production injection of the LuaSocket global. All remote
@@ -59,6 +60,8 @@ local state = {
 	dmHandle = nil,
 	viewModel = ViewModel.Empty(),
 	windowClosed = false,
+	gameId = nil,
+	gameOverEvent = nil,
 	showSpectators = false,
 	minimized = false,
 	playerTab = "awards",
@@ -135,10 +138,8 @@ local function WallClockSeconds()
 end
 
 local function CurrentGameId()
-	local gameID = Game and Game.gameID
-	if gameID == nil and Spring.GetGameRulesParam then gameID = SafeCall(Spring.GetGameRulesParam, "GameID") end
-	if gameID == nil or tostring(gameID) == "" then return nil end
-	return tostring(gameID)
+	state.gameId = state.gameId or Request.CurrentGameId(Spring, Game)
+	return state.gameId
 end
 
 local function LoadModOptionDefs()
@@ -166,6 +167,24 @@ local function BuildFetchRequest()
 end
 
 local fetch = Fetch.New(Remote, remoteSocket, BuildFetchRequest, Request.Wire, Json)
+
+local function BuildGameOverRequest()
+	if not IsLuaSocketEnabled() then return nil, "lua_socket_disabled" end
+	if not state.gameOverEvent then return nil, "missing_game_over_event" end
+	return state.gameOverEvent
+end
+
+local function GameEventRetryJitter(attempt, delay)
+	return GameOverEvent.RetryJitter(CurrentGameId(), attempt, delay)
+end
+
+local gameOverFetch = Fetch.New(Remote, remoteSocket, BuildGameOverRequest, GameOverEvent.Wire, Json, {
+	targetName = "game_events",
+	maxAttempts = 4,
+	retryInitialSeconds = 1,
+	retryMaxSeconds = 8,
+	retryJitter = GameEventRetryJitter,
+})
 
 local function FetchSnapshot()
 	return fetch:Snapshot()
@@ -510,6 +529,7 @@ end
 
 function widget:Initialize()
 	state.windowClosed = false
+	state.gameId = Request.CurrentGameId(Spring, Game)
 	state.showSpectators = GetConfigInt("PveStatsShowSpectators", DEFAULT_SHOW_SPECTATORS) == 1
 	state.minimized = GetConfigInt("PveStatsMinimized", DEFAULT_MINIMIZED) == 1
 	local modelOk, initialViewModel = pcall(BuildViewModel, nil, nil, nil)
@@ -667,11 +687,13 @@ end
 function widget:Shutdown()
 	state.windowClosed = true
 	ReleaseWindowResources()
+	pcall(gameOverFetch.Cancel, gameOverFetch)
 end
 
 function widget:Update(deltaTime)
-	if state.windowClosed then return end
 	state.fallbackClockSeconds = state.fallbackClockSeconds + math.max(0, tonumber(deltaTime) or 0)
+	gameOverFetch:Update(deltaTime, ScheduleSeconds())
+	if state.windowClosed then return end
 	UpdateLoadingProgress()
 	local event = fetch:Update(deltaTime, ScheduleSeconds())
 	if event then
@@ -679,6 +701,18 @@ function widget:Update(deltaTime)
 		return
 	end
 	UpdateSourceWindowAgeClock()
+end
+
+function widget:GameID(gameId)
+	state.gameId = Request.CurrentGameId(Spring, {gameID = gameId}) or state.gameId
+end
+
+function widget:GameOver(winningAllyTeams)
+	if state.gameOverEvent then return end
+	local event = GameOverEvent.Build(CurrentGameId(), winningAllyTeams or {}, SafeCall(Spring.GetGameFrame))
+	if not event then return end
+	state.gameOverEvent = event
+	gameOverFetch:Request(ScheduleSeconds())
 end
 
 function widget:RecvLuaMsg(message)

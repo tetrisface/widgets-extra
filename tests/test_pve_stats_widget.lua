@@ -13,20 +13,42 @@ local function InstallEnvironment(options)
 	_G.WG = {}
 	_G.Game = {mapName = "Test Map", gameID = "game-id", modOptions = {}}
 	_G.Json = {
-		encode = function() return "{}" end,
+		encode = function(value)
+			environment.lastEncoded = value
+			return "{}"
+		end,
 		decode = function() return {} end,
+	}
+	local socketClient = {
+		settimeout = function() end,
+		connect = function() return true end,
+		send = function(_, request)
+			environment.sentRequest = request
+			return #request
+		end,
+		receive = function()
+			local body = '{"accepted":true}'
+			return nil, "closed", "HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: "
+				.. tostring(#body) .. "\r\n\r\n" .. body
+		end,
+		close = function() environment.socketClosed = true end,
 	}
 	_G.socket = {
 		tcp = function()
 			environment.socketCreates = environment.socketCreates + 1
+			if options.luaSocket then return socketClient end
 			return nil
 		end,
-		select = function() return {}, {} end,
+		select = function(readable, writable)
+			if #writable > 0 then return {}, {socketClient}, nil end
+			if #readable > 0 then return {socketClient}, {}, nil end
+			return {}, {}, nil
+		end,
 	}
 	_G.Spring = {
 		GetConfigInt = function(key, defaultValue)
 			environment.configReads[key] = true
-			if key == "LuaSocketEnabled" then return 0 end
+			if key == "LuaSocketEnabled" then return options.luaSocket and 1 or 0 end
 			if key == "PveStatsAutoFetch" then return options.autoFetch and 1 or 0 end
 			return defaultValue
 		end,
@@ -35,6 +57,8 @@ local function InstallEnvironment(options)
 		GetViewGeometry = function() return 1920, 1080 end,
 		Echo = function(message) environment.lastLog = message end,
 		SetClipboard = function(value) environment.clipboard = value end,
+		GetGameFrame = function() return 123 end,
+		IsReplay = function() return false end,
 	}
 	_G.VFS = {
 		Include = function(path)
@@ -107,6 +131,22 @@ local function LoadWidget(options)
 	local environment = InstallEnvironment(options)
 	dofile(root .. "gui_pve_stats.lua")
 	return _G.widget, environment
+end
+
+local function testGameOverDeliveryContinuesAfterPanelClose()
+	local loadedWidget, environment = LoadWidget({autoFetch = false, luaSocket = true})
+	_G.Game.gameID = "abcdef0123456789abcdef0123456789"
+	loadedWidget:Initialize()
+	loadedWidget:GameOver({0})
+	loadedWidget:CloseWindow()
+	for _ = 1, 4 do loadedWidget:Update(0.1) end
+	T.contains(environment.sentRequest, "POST /api/v1/live-games/events HTTP/1.1")
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	T.equals(environment.lastEncoded.outcome, "decided")
+	T.equals(environment.lastEncoded.player_names, nil)
+	loadedWidget:GameOver({1})
+	T.equals(environment.socketCreates, 1, "duplicate GameOver scheduled another request")
+	loadedWidget:Shutdown()
 end
 
 local function AttributeEvent(attribute, value)
@@ -225,6 +265,7 @@ local function testEngineGlobalsStayAtTheCompositionBoundary()
 end
 
 testInitializationAndPublicApi()
+testGameOverDeliveryContinuesAfterPanelClose()
 testScheduledAndManualFetchUseTheDisabledGate()
 testInitialFetchAndShutdownCancellation()
 testInitializationFailureUnwindsResources()

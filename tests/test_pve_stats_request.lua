@@ -31,7 +31,11 @@ local function RaptorsSpring()
 end
 
 local function testBuildUsesTheLobbyDomain()
-	local request = assert(Request.Build(RaptorsSpring(), {mapName = "Supreme Isthmus"}))
+	local request = assert(Request.Build(RaptorsSpring(), {
+		mapName = "Supreme Isthmus",
+		gameID = "ABCDEF0123456789ABCDEF0123456789",
+	}))
+	T.equals(request.game_id, "abcdef0123456789abcdef0123456789")
 	T.equals(request.ai_type, "Raptors")
 	T.equals(request.map, "Supreme Isthmus")
 	T.equals(request.game_settings.stale, "new")
@@ -41,6 +45,17 @@ local function testBuildUsesTheLobbyDomain()
 	T.equals(request.player_ids[3], 303)
 	T.equals(request._own_player_id, 101)
 	T.truthy(request._request_key)
+end
+
+local function testGameIdFailsClosedAndReplaysOmitIt()
+	T.equals(Request.CurrentGameId({}, {gameID = "not-valid"}), nil)
+	T.equals(Request.CurrentGameId({}, {gameID = " abcdef0123456789abcdef0123456789"}), nil)
+	T.equals(Request.CurrentGameId({IsReplay = function() return true end}, {
+		gameID = "abcdef0123456789abcdef0123456789",
+	}), nil)
+	T.equals(Request.CurrentGameId({
+		GetGameRulesParam = function() return "ABCDEF0123456789ABCDEF0123456789" end,
+	}, {}), "abcdef0123456789abcdef0123456789")
 end
 
 local function testAiDetectionFailsClosedWhenNamedTeamsConflict()
@@ -158,6 +173,7 @@ local function testPlayerColorsAreCapturedAtTheEngineBoundary()
 end
 
 testBuildUsesTheLobbyDomain()
+testGameIdFailsClosedAndReplaysOmitIt()
 testAiDetectionFailsClosedWhenNamedTeamsConflict()
 testGenericAiFallsBackToBarbarian()
 testScavengerModeUsesTheSingleControllerEncounter()
