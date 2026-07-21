@@ -1,6 +1,6 @@
-**PvE Stats** — difficulty and accomplishment context for Beyond All Reason PvE games, shown directly in an in-game RmlUi panel.
+**PvE Stats** — View lobby difficulty and personal accomplishments from PvE games, shown directly in an in-game RmlUi panel.
 
-It uses the current map, team size, encounter, and effective lobby settings to show a representative-team win chance and where the setup sits among eligible played games. It also provides setting-match evidence and accomplishment-focused player statistics.
+It uses the current map, team size, encounter, and effective lobby settings to show a representative-team win chance and where the setup sits among eligible played games.
 
 *Network note: PvE Stats currently uses unencrypted HTTP, so requests and responses are not encrypted in transit.*
 
