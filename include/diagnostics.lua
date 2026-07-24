@@ -184,7 +184,8 @@ function DiagnosticsFactory.New(Display)
 		end
 		if response and response.setting_hash then evidence.query_hash = DiagnosticHash(response.setting_hash) end
 		if topMatch and topMatch.setting_hash then evidence.match_hash = DiagnosticHash(topMatch.setting_hash) end
-		if options and options.currentGameId then evidence.game_id = tostring(options.currentGameId) end
+		if options and options.sentGameId then evidence.sent_game_id = tostring(options.sentGameId) end
+		if options and options.currentGameId then evidence.current_game_id = tostring(options.currentGameId) end
 		return evidence
 	end
 
@@ -216,7 +217,10 @@ function DiagnosticsFactory.New(Display)
 		if evidence.request_hash then identities[#identities + 1] = "request " .. tostring(evidence.request_hash) end
 		if evidence.query_hash then identities[#identities + 1] = "query " .. tostring(evidence.query_hash) end
 		if evidence.match_hash then identities[#identities + 1] = "match " .. tostring(evidence.match_hash) end
-		if evidence.game_id then identities[#identities + 1] = "game " .. tostring(evidence.game_id) end
+		if evidence.sent_game_id then identities[#identities + 1] = "sent game " .. tostring(evidence.sent_game_id) end
+		if evidence.current_game_id then
+			identities[#identities + 1] = "current game " .. tostring(evidence.current_game_id)
+		end
 		AddRow(rows, "IDs", #identities > 0 and table.concat(identities, "; ") or nil)
 		return rows
 	end

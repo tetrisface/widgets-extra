@@ -30,9 +30,12 @@ local function NormalizeGameId(value)
 	return gameId
 end
 
-function Request.CurrentGameId(springApi, gameApi)
+function Request.CurrentGameId(springApi, gameApi, resolvedGameId)
 	if SafeCall(springApi, "IsReplay") == true then return nil end
-	local gameId = gameApi and (gameApi.gameID or gameApi.gameId or gameApi.game_id)
+	local gameId = resolvedGameId
+	if gameId == nil then
+		gameId = gameApi and (gameApi.gameID or gameApi.gameId or gameApi.game_id)
+	end
 	if gameId == nil then gameId = SafeCall(springApi, "GetGameRulesParam", "GameID") end
 	return NormalizeGameId(gameId)
 end
@@ -481,7 +484,7 @@ function Request.Wire(request)
 	return wire
 end
 
-function Request.Build(springApi, gameApi)
+function Request.Build(springApi, gameApi, resolvedGameId)
 	local aiType, aiTypeSource, enemyAiCount, enemyAiTeamIds = DetectAiTypeWithSource(springApi)
 	if not aiType then
 		return nil, aiTypeSource or "missing_ai_type"
@@ -513,7 +516,7 @@ function Request.Build(springApi, gameApi)
 	end
 
 	local request = {
-		game_id = Request.CurrentGameId(springApi, gameApi),
+		game_id = Request.CurrentGameId(springApi, gameApi, resolvedGameId),
 		ai_type = aiType,
 		map = tostring(mapName),
 		game_settings = CollectModOptions(springApi),

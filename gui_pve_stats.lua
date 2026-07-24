@@ -62,6 +62,7 @@ local state = {
 	viewModel = ViewModel.Empty(),
 	windowClosed = false,
 	gameId = nil,
+	pendingGameIdRefresh = false,
 	gameOverEvent = nil,
 	showSpectators = false,
 	minimized = false,
@@ -162,7 +163,7 @@ end
 
 local function BuildFetchRequest()
 	if not IsLuaSocketEnabled() then return nil, "lua_socket_disabled" end
-	return Request.Build(Spring, Game)
+	return Request.Build(Spring, Game, CurrentGameId())
 end
 
 local fetch = Fetch.New(Remote, remoteSocket, BuildFetchRequest, Request.Wire, Json)
@@ -208,7 +209,7 @@ local function TransportEvidence()
 	return evidence
 end
 
-local function ViewOptions()
+local function ViewOptions(request)
 	return {
 		showSpectators = state.showSpectators,
 		playerTab = state.playerTab,
@@ -217,6 +218,7 @@ local function ViewOptions()
 		modOptionSteps = ModOptionStepLookup(),
 		sourceWindowNowSeconds = WallClockSeconds(),
 		currentGameId = CurrentGameId(),
+		sentGameId = request and request.game_id,
 		transportEvidence = TransportEvidence(),
 		sortColumn = state.playerSortColumn,
 		sortDescending = state.playerSortDescending,
@@ -224,7 +226,7 @@ local function ViewOptions()
 end
 
 local function BuildViewModel(response, errorCode, request)
-	return ViewModel.Build(response, errorCode, request, Request.PlayerColorLookup(Spring), ViewOptions())
+	return ViewModel.Build(response, errorCode, request, Request.PlayerColorLookup(Spring), ViewOptions(request))
 end
 
 local function ApplyUiState()
@@ -328,6 +330,7 @@ local function DiagnosticEvidence()
 	local snapshot = FetchSnapshot()
 	return Diagnostics.Evidence(snapshot.lastResponse, {
 		currentGameId = CurrentGameId(),
+		sentGameId = snapshot.lastRequest and snapshot.lastRequest.game_id,
 		transportEvidence = TransportEvidence(),
 	})
 end
@@ -409,6 +412,8 @@ local function RetryView(event)
 	ApplyViewModel(view)
 end
 
+local SchedulePendingGameIdRefresh
+
 local function HandleFetchEvent(event)
 	if not event then return end
 	if event.kind == "started" then
@@ -422,6 +427,7 @@ local function HandleFetchEvent(event)
 		ResetSourceWindowAgeClock(event.response)
 		CompleteLoading()
 		RefreshViewModel()
+		SchedulePendingGameIdRefresh()
 		return
 	end
 	if event.kind == "retrying" then
@@ -432,11 +438,25 @@ local function HandleFetchEvent(event)
 		CancelLoading()
 		ResetSourceWindowAgeClock(nil)
 		RefreshViewModel()
+		SchedulePendingGameIdRefresh()
 	end
 end
 
 local function ScheduleFetch(delay)
 	return fetch:Schedule(delay, ScheduleSeconds())
+end
+
+SchedulePendingGameIdRefresh = function()
+	if not state.pendingGameIdRefresh or not state.gameId then return false end
+	local snapshot = FetchSnapshot()
+	if snapshot.phase ~= "idle" then return false end
+	if snapshot.lastRequest and snapshot.lastRequest.game_id == state.gameId then
+		state.pendingGameIdRefresh = false
+		return false
+	end
+	local scheduled = ScheduleFetch(0)
+	if scheduled then state.pendingGameIdRefresh = false end
+	return scheduled
 end
 
 local function RequestStats()
@@ -462,7 +482,7 @@ end
 
 local function InstallApi()
 	WG.PveStatsRml = {
-		BuildRequest = function() return Request.Build(Spring, Game) end,
+		BuildRequest = function() return Request.Build(Spring, Game, CurrentGameId()) end,
 		FetchStats = RequestStats,
 		ScheduleFetch = ScheduleFetch,
 		GetLastRequest = function() return FetchSnapshot().lastRequest end,
@@ -671,7 +691,16 @@ function widget:Update(deltaTime)
 end
 
 function widget:GameID(gameId)
-	state.gameId = Request.CurrentGameId(Spring, {gameID = gameId}) or state.gameId
+	local resolved = Request.CurrentGameId(Spring, {gameID = gameId})
+	if not resolved or resolved == state.gameId then return end
+	state.gameId = resolved
+	local snapshot = FetchSnapshot()
+	if snapshot.phase == "scheduled" and snapshot.lastRequest == nil then return end
+	if snapshot.lastRequest and snapshot.lastRequest.game_id == resolved then return end
+	if snapshot.lastRequest ~= nil or snapshot.phase ~= "idle" then
+		state.pendingGameIdRefresh = true
+		SchedulePendingGameIdRefresh()
+	end
 end
 
 function widget:GameOver(winningAllyTeams)

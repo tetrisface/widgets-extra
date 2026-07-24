@@ -107,6 +107,7 @@ local options = {
 	diagnosticsExpanded = true,
 	modOptionSteps = {startmetal = 10},
 	currentGameId = "game-opaque-id",
+	sentGameId = "sent-game-opaque-id",
 	transportEvidence = {
 		http_status = 200,
 		attempt = 2,
@@ -198,6 +199,8 @@ local function testDiagnosticsUseOneNarrowEvidenceContract()
 	local presentation = Diagnostics.Build(response, options)
 	T.contains(presentation.diagnosticsText, "HTTP: 200; attempt 2")
 	T.contains(presentation.diagnosticsText, "request 512 B; response 2 KiB")
+	T.contains(presentation.diagnosticsText, "sent game sent-game-opaque-id")
+	T.contains(presentation.diagnosticsText, "current game game-opaque-id")
 	T.notContains(presentation.diagnosticsText, "excluded-support-detail")
 	local logText = Diagnostics.FormatEvidenceLog(evidence)
 	T.contains(logText, "http_status=200")

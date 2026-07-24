@@ -56,6 +56,11 @@ local function testGameIdFailsClosedAndReplaysOmitIt()
 	T.equals(Request.CurrentGameId({
 		GetGameRulesParam = function() return "ABCDEF0123456789ABCDEF0123456789" end,
 	}, {}), "abcdef0123456789abcdef0123456789")
+	T.equals(Request.CurrentGameId({}, {}, "ABCDEF0123456789ABCDEF0123456789"),
+		"abcdef0123456789abcdef0123456789")
+	local request = assert(Request.Build(RaptorsSpring(), {mapName = "Map"},
+		"ABCDEF0123456789ABCDEF0123456789"))
+	T.equals(request.game_id, "abcdef0123456789abcdef0123456789")
 end
 
 local function testAiDetectionFailsClosedWhenNamedTeamsConflict()

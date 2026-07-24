@@ -6,6 +6,7 @@ local function InstallEnvironment(options)
 	local environment = {
 		configReads = {},
 		configWrites = {},
+		encodedRequests = {},
 		socketCreates = 0,
 		removedModels = 0,
 	}
@@ -15,6 +16,7 @@ local function InstallEnvironment(options)
 	_G.Json = {
 		encode = function(value)
 			environment.lastEncoded = value
+			environment.encodedRequests[#environment.encodedRequests + 1] = value
 			return "{}"
 		end,
 		decode = function() return {} end,
@@ -27,8 +29,13 @@ local function InstallEnvironment(options)
 			return #request
 		end,
 		receive = function()
-			local body = '{"accepted":true}'
-			return nil, "closed", "HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: "
+			local body = environment.socketCreates == 1 and options.retryFirst
+				and '{"error":"temporarily_unavailable"}'
+				or '{"accepted":true}'
+			local status = environment.socketCreates == 1 and options.retryFirst
+				and "500 Internal Server Error"
+				or "202 Accepted"
+			return nil, "closed", "HTTP/1.1 " .. status .. "\r\nContent-Type: application/json\r\nContent-Length: "
 				.. tostring(#body) .. "\r\n\r\n" .. body
 		end,
 		close = function() environment.socketClosed = true end,
@@ -61,7 +68,16 @@ local function InstallEnvironment(options)
 			environment.clipboard = value
 		end,
 		GetGameFrame = function() return 123 end,
-		IsReplay = function() return false end,
+		GetModOptions = function() return {} end,
+		GetPlayerList = function() return {} end,
+		GetTeamList = function() return {} end,
+		IsReplay = function() return options.isReplay == true end,
+		Utilities = {
+			Gametype = {
+				IsRaptors = function() return true end,
+				IsScavengers = function() return false end,
+			},
+		},
 	}
 	_G.VFS = {
 		Include = function(path)
@@ -260,6 +276,75 @@ local function testInitialFetchAndShutdownCancellation()
 	T.equals(environment.socketCreates, 0)
 end
 
+local function CompleteRequest(loadedWidget)
+	loadedWidget:Update(0)
+	loadedWidget:Update(0)
+end
+
+local function testGameIdCallbackFeedsTheScheduledRequest()
+	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	loadedWidget:Update(0.6)
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 1)
+	loadedWidget:Shutdown()
+end
+
+local function testLateGameIdSchedulesExactlyOneRecoveryRequest()
+	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	loadedWidget:Update(0.6)
+	T.equals(environment.lastEncoded.game_id, nil)
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	CompleteRequest(loadedWidget)
+	loadedWidget:Update(0)
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	CompleteRequest(loadedWidget)
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	loadedWidget:Update(10)
+	T.equals(environment.socketCreates, 2)
+	loadedWidget:Shutdown()
+end
+
+local function testReplayGameIdDoesNotScheduleRecovery()
+	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true, isReplay = true})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	loadedWidget:Update(0.6)
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	CompleteRequest(loadedWidget)
+	loadedWidget:Update(10)
+	T.equals(environment.socketCreates, 1)
+	T.equals(environment.lastEncoded.game_id, nil)
+	loadedWidget:Shutdown()
+end
+
+local function testGameIdDuringRetryWaitRecoversAfterTheRetrySettles()
+	local loadedWidget, environment = LoadWidget({
+		autoFetch = true,
+		luaSocket = true,
+		retryFirst = true,
+	})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	loadedWidget:Update(0.6)
+	loadedWidget:Update(0)
+	loadedWidget:Update(0)
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	loadedWidget:Update(2)
+	T.equals(environment.lastEncoded.game_id, nil, "retry rebuilt the original request")
+	CompleteRequest(loadedWidget)
+	loadedWidget:Update(0)
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 3)
+	loadedWidget:Shutdown()
+end
+
 local function testInitializationFailureUnwindsResources()
 	local loadedWidget, environment = LoadWidget({loadDocumentFails = true})
 	local initialized = loadedWidget:Initialize()
@@ -303,6 +388,10 @@ testGameOverDeliveryContinuesAfterPanelClose()
 testScheduledAndManualFetchUseTheDisabledGate()
 testCopyFeedbackUsesNonLayoutTooltipState()
 testInitialFetchAndShutdownCancellation()
+testGameIdCallbackFeedsTheScheduledRequest()
+testLateGameIdSchedulesExactlyOneRecoveryRequest()
+testReplayGameIdDoesNotScheduleRecovery()
+testGameIdDuringRetryWaitRecoversAfterTheRetrySettles()
 testInitializationFailureUnwindsResources()
 testEngineGlobalsStayAtTheCompositionBoundary()
 
