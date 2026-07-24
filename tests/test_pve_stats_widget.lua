@@ -56,7 +56,10 @@ local function InstallEnvironment(options)
 		SetConfigInt = function(key, value) environment.configWrites[key] = value end,
 		GetViewGeometry = function() return 1920, 1080 end,
 		Echo = function(message) environment.lastLog = message end,
-		SetClipboard = function(value) environment.clipboard = value end,
+		SetClipboard = function(value)
+			if options.clipboardFails then error("simulated clipboard failure") end
+			environment.clipboard = value
+		end,
 		GetGameFrame = function() return 123 end,
 		IsReplay = function() return false end,
 	}
@@ -211,6 +214,37 @@ local function testScheduledAndManualFetchUseTheDisabledGate()
 	loadedWidget:Shutdown()
 end
 
+local function testCopyFeedbackUsesNonLayoutTooltipState()
+	local loadedWidget, environment = LoadWidget({autoFetch = false})
+	loadedWidget:Initialize()
+	local api = assert(_G.WG.PveStatsRml)
+
+	loadedWidget:CopyDiagnostics()
+	T.equals(environment.clipboard, "PvE Stats diagnostics")
+	T.equals(environment.model.diagnosticsCopyTooltipText, "PvE Stats diagnostics copied to clipboard.")
+	loadedWidget:ResetCopyFeedback(AttributeEvent("data-copy-target", "diagnostics"))
+	T.equals(environment.model.diagnosticsCopyTooltipText, "Copy diagnostics to clipboard.")
+
+	local view = api.GetViewModel()
+	view.hasUpdate = true
+	view.updateHelpText = "Update available. Click to copy."
+	loadedWidget:CopyUpdateLink()
+	T.contains(environment.clipboard, "discord.com/channels/")
+	T.equals(environment.model.updateTooltipText, "Widget installation link copied to clipboard.")
+	loadedWidget:ResetCopyFeedback(AttributeEvent("data-copy-target", "update"))
+	T.equals(environment.model.updateTooltipText, view.updateHelpText)
+	loadedWidget:Shutdown()
+
+	loadedWidget, environment = LoadWidget({autoFetch = false, clipboardFails = true})
+	loadedWidget:Initialize()
+	loadedWidget:CopyDiagnostics()
+	T.equals(
+		environment.model.diagnosticsCopyTooltipText,
+		"Clipboard unavailable. Diagnostics remain visible in the expanded panel."
+	)
+	loadedWidget:Shutdown()
+end
+
 local function testInitialFetchAndShutdownCancellation()
 	local loadedWidget, environment = LoadWidget({autoFetch = true})
 	loadedWidget:Initialize()
@@ -267,6 +301,7 @@ end
 testInitializationAndPublicApi()
 testGameOverDeliveryContinuesAfterPanelClose()
 testScheduledAndManualFetchUseTheDisabledGate()
+testCopyFeedbackUsesNonLayoutTooltipState()
 testInitialFetchAndShutdownCancellation()
 testInitializationFailureUnwindsResources()
 testEngineGlobalsStayAtTheCompositionBoundary()

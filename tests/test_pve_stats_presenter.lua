@@ -165,10 +165,17 @@ local function testStructuredViewModel()
 	T.equals(view.matchText, "Similar 0.875")
 	T.truthy(view.hasHistogram)
 	T.equals(#view.histogramBins, 2)
+	T.contains(view.histogramHelpText, "Dark bars show 10 eligible games")
 	T.falsy(view.histogramBins[1].isCurrent)
+	T.truthy(view.histogramBins[1].tooltipAlignStart)
+	T.falsy(view.histogramBins[1].tooltipAlignEnd)
 	T.truthy(view.histogramBins[2].isCurrent)
+	T.falsy(view.histogramBins[2].tooltipAlignStart)
+	T.truthy(view.histogramBins[2].tooltipAlignEnd)
+	T.contains(view.histogramBins[2].helpText, "Your current setup is here at 21.0")
 	T.equals(view.histogramBins[2].populationHeight, "80%")
 	T.equals(view.histogramBins[2].ownHeight, "100%")
+	T.contains(view.playerStatOneHelpText, "governed challenge 20")
 	local alice = assert(FindPlayer(view.playerGroups, "Alice"))
 	T.truthy(alice.isOwn)
 	T.equals(alice.color, "#112233")
@@ -220,7 +227,9 @@ local function testFeatureTabsSortingAndHelpMatchPresentation()
 		})
 		T.equals(model.playerTab, tab)
 		T.truthy(model.playerStatOneLabel ~= "")
-		T.truthy(PlayerStats.HelpText(tab, 1) ~= "")
+		T.equals(model.playerStatOneHelpText, PlayerStats.HelpText(tab, 1))
+		T.equals(model.playerStatTwoHelpText, PlayerStats.HelpText(tab, 2))
+		T.equals(model.playerStatThreeHelpText, PlayerStats.HelpText(tab, 3))
 	end
 	local withoutSpectators = PlayerStats.Build(response, request, nil, {
 		playerTab = "setup",
@@ -231,6 +240,24 @@ local function testFeatureTabsSortingAndHelpMatchPresentation()
 	T.equals(FindPlayer(withoutSpectators.playerGroups, "Spectator"), nil)
 	T.contains(Histogram.HelpText(response, request), "eligible games")
 	T.contains(Histogram.BinHelpText(response, request, 2), "current setup is here")
+end
+
+local function testHistogramTooltipAlignmentCoversBothEdgesAndCenter()
+	local histogram = Histogram.Build({
+		difficulty_histogram = {
+			total_games = 6,
+			bins = {
+				{lower_bound = 0, upper_bound = 10, games = 1, wins = 1},
+				{lower_bound = 10, upper_bound = 20, games = 2, wins = 1},
+				{lower_bound = 20, upper_bound = 30, games = 3, wins = 1},
+			},
+		},
+	}, request)
+	T.truthy(histogram.histogramBins[1].tooltipAlignStart)
+	T.falsy(histogram.histogramBins[2].tooltipAlignStart)
+	T.falsy(histogram.histogramBins[2].tooltipAlignEnd)
+	T.truthy(histogram.histogramBins[3].tooltipAlignEnd)
+	T.contains(histogram.histogramBins[2].helpText, "Challenge 10-20")
 end
 
 local function testPlayerSortingIsStrictAndDirectional()
@@ -272,6 +299,7 @@ end
 
 local function testRmlOwnsDynamicMarkup()
 	local rml = T.read(root .. "gui_pve_stats.rml")
+	local rcss = T.read(root .. "gui_pve_stats.rcss")
 	local entrypoint = T.read(root .. "gui_pve_stats.lua")
 	T.contains(rml, "data-for=\"bin : histogramBins\"")
 	T.contains(rml, "data-for=\"row : diagnosticRows\"")
@@ -279,6 +307,20 @@ local function testRmlOwnsDynamicMarkup()
 	T.contains(rml, "data-for=\"player : group.players\"")
 	T.contains(rml, "data-style-height=\"bin.populationHeight\"")
 	T.contains(rml, "data-if=\"bin.hasOwn\"")
+	T.contains(rml, "{{bin.helpText}}")
+	T.contains(rml, "{{playerStatOneHelpText}}")
+	T.contains(rml, "{{updateTooltipText}}")
+	T.contains(rcss, ".pve-stats-tooltip {")
+	T.contains(rcss, "visibility: hidden;")
+	T.contains(rcss, "position: absolute;")
+	T.contains(rcss, "pointer-events: none;")
+	T.contains(rcss, "font-size: 12dp;")
+	T.notContains(rml, "id=\"pve-stats-help\"")
+	T.notContains(rml, "id=\"pve-stats-table-help\"")
+	T.notContains(rml, "onmouseover=")
+	T.notContains(entrypoint, "ShowSummaryHelp")
+	T.notContains(entrypoint, "ShowHistogramBinHelp")
+	T.notContains(entrypoint, "ShowPlayerStatHelp")
 	T.notContains(entrypoint, "inner_rml")
 	T.notContains(entrypoint, "playersRml")
 end
@@ -288,6 +330,7 @@ testDataModelRootSchemaIsStable()
 testDiagnosticsUseOneNarrowEvidenceContract()
 testErrorsAndFreshnessArePresentationState()
 testFeatureTabsSortingAndHelpMatchPresentation()
+testHistogramTooltipAlignmentCoversBothEdgesAndCenter()
 testPlayerSortingIsStrictAndDirectional()
 testRmlOwnsDynamicMarkup()
 

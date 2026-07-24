@@ -15,22 +15,20 @@
                 <div class="title-content">
                     <span class="title-text">PvE Stats</span>
                     <div id="pve-stats-status"
-                         class="title-status ctrl-btn active"
+                         class="title-status ctrl-btn active pve-stats-tooltip-anchor pve-stats-tooltip-align-start"
                          data-class-hidden="statusText == 'Ready'"
                          data-class-update-available="hasUpdate"
                          onclick="widget:CopyUpdateLink(event)"
-                         onmouseover="widget:ShowUpdateHelp(event)"
-                         onmouseout="widget:HideHelp(event)">{{statusText}}</div>
+                         data-copy-target="update"
+                         onmouseout="widget:ResetCopyFeedback(event)">{{statusText}}<span class="pve-stats-tooltip" data-if="hasUpdate">{{updateTooltipText}}</span></div>
                 </div>
             </handle>
             <div class="title-controls">
                 <div id="pve-stats-diagnostics-toggle"
-                     class="ctrl-btn"
+                     class="ctrl-btn pve-stats-tooltip-anchor pve-stats-tooltip-align-end"
                      data-class-hidden="!hasDiagnostics"
                      data-class-active="diagnosticsExpanded"
-                     onclick="widget:ToggleDiagnostics(event)"
-                     onmouseover="widget:ShowDiagnosticsHelp(event)"
-                     onmouseout="widget:HideHelp(event)">Diag</div>
+                     onclick="widget:ToggleDiagnostics(event)">Diag<span class="pve-stats-tooltip">Show field differences, request timing, field coverage, match details, and troubleshooting IDs.</span></div>
                 <div id="pve-stats-spectators-toggle"
                      class="ctrl-btn"
                      data-class-active="showSpectators"
@@ -48,25 +46,30 @@
             </div>
 
             <div class="pve-stats-summary pve-stats-summary-compact">
-                <div class="pve-stats-metric" onmouseover="widget:ShowSummaryHelp(event)" data-help="win" onmouseout="widget:HideHelp(event)">
+                <div class="pve-stats-metric pve-stats-tooltip-anchor pve-stats-tooltip-align-start">
                     <span class="pve-stats-label">{{winsLabelText}}</span>
                     <span class="pve-stats-value">{{exactWinsText}}</span>
+                    <span class="pve-stats-tooltip">{{winChanceHelpText}}</span>
                 </div>
-                <div class="pve-stats-metric" onmouseover="widget:ShowSummaryHelp(event)" data-help="challenge" onmouseout="widget:HideHelp(event)">
+                <div class="pve-stats-metric pve-stats-tooltip-anchor pve-stats-tooltip-align-start">
                     <span class="pve-stats-label">Challenge</span>
                     <span class="pve-stats-value">{{difficultyText}}</span>
+                    <span class="pve-stats-tooltip">{{challengeHelpText}}</span>
                 </div>
-                <div class="pve-stats-metric pve-stats-metric-wide" onmouseover="widget:ShowSummaryHelp(event)" data-help="percentile" onmouseout="widget:HideHelp(event)">
+                <div class="pve-stats-metric pve-stats-metric-wide pve-stats-tooltip-anchor">
                     <span class="pve-stats-label">{{evidenceGamesLabel}}</span>
                     <span class="pve-stats-value">{{evidenceGamesText}}</span>
+                    <span class="pve-stats-tooltip">{{difficultyPercentileHelpText}}</span>
                 </div>
-                <div class="pve-stats-metric" onmouseover="widget:ShowSummaryHelp(event)" data-help="training" onmouseout="widget:HideHelp(event)">
+                <div class="pve-stats-metric pve-stats-tooltip-anchor pve-stats-tooltip-align-end">
                     <span class="pve-stats-label">Training Games</span>
                     <span class="pve-stats-value">{{extendedWinsText}}</span>
+                    <span class="pve-stats-tooltip">{{trainingGamesHelpText}}</span>
                 </div>
-                <div class="pve-stats-metric pve-stats-metric-wide" onmouseover="widget:ShowSummaryHelp(event)" data-help="match" onmouseout="widget:HideHelp(event)">
+                <div class="pve-stats-metric pve-stats-metric-wide pve-stats-tooltip-anchor pve-stats-tooltip-align-end">
                     <span class="pve-stats-label">Match</span>
                     <span class="pve-stats-value" data-class-exact-match="isExactMatch">{{matchText}}</span>
+                    <span class="pve-stats-tooltip">{{matchHelpText}}</span>
                 </div>
             </div>
 
@@ -74,14 +77,14 @@
                 <div id="pve-stats-histogram-content">
                     <div class="pve-stats-histogram-chart">
                         <div data-for="bin : histogramBins"
-                             class="pve-stats-histogram-bin"
+                             class="pve-stats-histogram-bin pve-stats-tooltip-anchor"
                              data-class-current="bin.isCurrent"
-                             data-attr-data-bin-index="bin.index"
-                             onmouseover="widget:ShowHistogramBinHelp(event)"
-                             onmouseout="widget:HideHelp(event)">
+                             data-class-pve-stats-tooltip-align-start="bin.tooltipAlignStart"
+                             data-class-pve-stats-tooltip-align-end="bin.tooltipAlignEnd">
                             <div class="pve-stats-histogram-population" data-style-height="bin.populationHeight"></div>
                             <div class="pve-stats-histogram-own" data-if="bin.hasOwn" data-style-height="bin.ownHeight"></div>
                             <div class="pve-stats-histogram-current" data-if="bin.isCurrent"></div>
+                            <span class="pve-stats-tooltip">{{bin.helpText}}</span>
                         </div>
                     </div>
                     <div class="pve-stats-histogram-scale">
@@ -91,17 +94,16 @@
                         <span class="pve-stats-histogram-scale-threshold" style="left: 88.235%">30</span>
                         <span class="pve-stats-histogram-scale-end">34</span>
                     </div>
-                    <div class="pve-stats-histogram-legend" onmouseover="widget:ShowHistogramHelp(event)" onmouseout="widget:HideHelp(event)">
+                    <div class="pve-stats-histogram-legend pve-stats-tooltip-anchor">
                         <span><span class="pve-stats-histogram-swatch population"></span>Played games</span>
                         <span><span class="pve-stats-histogram-swatch own"></span>Your clears</span>
                         <span><span class="pve-stats-histogram-swatch current"></span>Current</span>
                         <span>common % scale</span>
+                        <span class="pve-stats-tooltip">{{histogramHelpText}}</span>
                     </div>
                 </div>
                 <div class="pve-stats-histogram-caption">{{histogramCaption}}</div>
             </div>
-
-            <div id="pve-stats-help" class="pve-stats-help" data-class-hidden="!helpVisible">{{helpText}}</div>
 
             <div id="pve-stats-source" class="pve-stats-source" data-class-hidden="!hasSourceWindow">
                 <span class="pve-stats-source-label">Data</span>
@@ -116,7 +118,10 @@
                 <div class="pve-stats-diagnostics">
                     <div class="pve-stats-diagnostics-header">
                         <span>Diagnostics</span>
-                        <span class="pve-stats-diagnostics-copy" onclick="widget:CopyDiagnostics(event)">Copy</span>
+                        <span class="pve-stats-diagnostics-copy pve-stats-tooltip-anchor pve-stats-tooltip-align-end"
+                              data-copy-target="diagnostics"
+                              onclick="widget:CopyDiagnostics(event)"
+                              onmouseout="widget:ResetCopyFeedback(event)">Copy<span class="pve-stats-tooltip">{{diagnosticsCopyTooltipText}}</span></span>
                     </div>
                     <div data-for="row : diagnosticRows" class="pve-stats-diagnostic-row">
                         <span class="pve-stats-diagnostic-label">{{row.label}}</span>
@@ -152,11 +157,10 @@
                 </div>
                 <div class="table-header">
                     <span class="pve-stats-th-player pve-stats-sortable" data-column="0" data-class-active-sort="sortColumn == 0" onclick="widget:SortPlayerColumn(event)">{{playerHeaderLabel}}</span>
-                    <span class="pve-stats-th-stat pve-stats-sortable" data-column="1" data-class-active-sort="sortColumn == 1" onclick="widget:SortPlayerColumn(event)" onmouseover="widget:ShowPlayerStatHelp(event)" onmouseout="widget:HideHelp(event)">{{playerStatOneLabel}}</span>
-                    <span class="pve-stats-th-stat pve-stats-sortable" data-column="2" data-class-active-sort="sortColumn == 2" onclick="widget:SortPlayerColumn(event)" onmouseover="widget:ShowPlayerStatHelp(event)" onmouseout="widget:HideHelp(event)">{{playerStatTwoLabel}}</span>
-                    <span class="pve-stats-th-stat pve-stats-sortable" data-column="3" data-class-active-sort="sortColumn == 3" onclick="widget:SortPlayerColumn(event)" onmouseover="widget:ShowPlayerStatHelp(event)" onmouseout="widget:HideHelp(event)">{{playerStatThreeLabel}}</span>
+                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-column="1" data-class-active-sort="sortColumn == 1" onclick="widget:SortPlayerColumn(event)">{{playerStatOneLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatOneHelpText}}</span></span>
+                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-column="2" data-class-active-sort="sortColumn == 2" onclick="widget:SortPlayerColumn(event)">{{playerStatTwoLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatTwoHelpText}}</span></span>
+                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor pve-stats-tooltip-align-end" data-column="3" data-class-active-sort="sortColumn == 3" onclick="widget:SortPlayerColumn(event)">{{playerStatThreeLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatThreeHelpText}}</span></span>
                 </div>
-                <div id="pve-stats-table-help" class="pve-stats-help pve-stats-table-help" data-class-hidden="!tableHelpVisible">{{tableHelpText}}</div>
                 <div id="pve-stats-players" class="pve-stats-players">
                     <div data-for="group : playerGroups">
                         <div class="pve-stats-group-label" data-if="group.showLabel">{{group.label}}</div>

@@ -24,6 +24,7 @@ local INCLUDE_PATH = WIDGET_PATH .. "include/"
 local RML_PATH = WIDGET_PATH .. "gui_pve_stats.rml"
 local PANEL_ID = "pve-stats-root"
 local UPDATE_URL = "https://discord.com/channels/549281623154229250/1527813859497476270"
+local DIAGNOSTICS_COPY_HELP_TEXT = "Copy diagnostics to clipboard."
 
 local DEFAULT_AUTO_FETCH = 1
 local DEFAULT_EVIDENCE_LOG = 1
@@ -81,10 +82,8 @@ local state = {
 	loadingStartedWithResponse = false,
 	loadingCompletedDueSeconds = nil,
 	loadingProgressPercent = nil,
-	helpText = "",
-	helpVisible = false,
-	tableHelpText = "",
-	tableHelpVisible = false,
+	updateCopyFeedback = nil,
+	diagnosticsCopyFeedback = nil,
 }
 
 local function SafeCall(method, ...)
@@ -235,14 +234,14 @@ local function ApplyUiState()
 	dm.minimizeText = state.minimized and "[]" or "-"
 	dm.loadingVisible = state.loadingActive
 	dm.loadingWidth = string.format("%.1f%%", state.loadingProgressPercent or 0)
-	dm.helpText = state.helpText
-	dm.helpVisible = state.helpVisible
-	dm.tableHelpText = state.tableHelpText
-	dm.tableHelpVisible = state.tableHelpVisible
+	dm.updateTooltipText = state.updateCopyFeedback or state.viewModel.updateHelpText or ""
+	dm.diagnosticsCopyTooltipText = state.diagnosticsCopyFeedback or DIAGNOSTICS_COPY_HELP_TEXT
 end
 
 local function ApplyViewModel(viewModel)
 	state.viewModel = viewModel or ViewModel.Empty()
+	state.updateCopyFeedback = nil
+	state.diagnosticsCopyFeedback = nil
 	if state.dmHandle then
 		for key, value in pairs(state.viewModel) do state.dmHandle[key] = value end
 		ApplyUiState()
@@ -310,23 +309,6 @@ local function UpdateLoadingProgress()
 	end
 	local elapsed = LoadingElapsedSeconds()
 	if elapsed then SetLoadingProgress(ViewModel.EstimatedLoadingProgress(elapsed, LoadingExpectedSeconds())) end
-end
-
-local function ShowHelpIn(tableHelp, text)
-	if not text or text == "" then return end
-	state.helpVisible = not tableHelp
-	state.tableHelpVisible = tableHelp
-	if tableHelp then state.tableHelpText = text else state.helpText = text end
-	ApplyUiState()
-end
-
-local function ShowHelp(text) ShowHelpIn(false, text) end
-local function ShowTableHelp(text) ShowHelpIn(true, text) end
-
-local function HideHelpPanels()
-	state.helpVisible = false
-	state.tableHelpVisible = false
-	ApplyUiState()
 end
 
 local function LogMessage(message)
@@ -473,10 +455,8 @@ local function ModelWithUiState()
 	model.minimizeText = state.minimized and "[]" or "-"
 	model.loadingVisible = state.loadingActive
 	model.loadingWidth = string.format("%.1f%%", state.loadingProgressPercent or 0)
-	model.helpText = state.helpText
-	model.helpVisible = state.helpVisible
-	model.tableHelpText = state.tableHelpText
-	model.tableHelpVisible = state.tableHelpVisible
+	model.updateTooltipText = state.updateCopyFeedback or state.viewModel.updateHelpText or ""
+	model.diagnosticsCopyTooltipText = state.diagnosticsCopyFeedback or DIAGNOSTICS_COPY_HELP_TEXT
 	return model
 end
 
@@ -609,52 +589,39 @@ function widget:SortPlayerColumn(event)
 	RefreshViewModel()
 end
 
-function widget:ShowPlayerStatHelp(event)
-	local column = tonumber(EventAttribute(event, "data-column"))
-	if column and column >= 1 and column <= 3 then ShowTableHelp(PlayerStats.HelpText(state.playerTab, column)) end
-end
-
-function widget:ShowSummaryHelp(event)
-	local help = EventAttribute(event, "data-help")
-	local texts = {
-		win = state.viewModel.winChanceHelpText,
-		challenge = state.viewModel.challengeHelpText,
-		percentile = state.viewModel.difficultyPercentileHelpText,
-		training = state.viewModel.trainingGamesHelpText,
-		match = state.viewModel.matchHelpText,
-	}
-	ShowHelp(texts[help])
-end
-
-function widget:ShowHistogramHelp()
-	local snapshot = FetchSnapshot()
-	ShowHelp(Histogram.HelpText(snapshot.lastResponse, snapshot.lastRequest))
-end
-
-function widget:ShowHistogramBinHelp(event)
-	local snapshot = FetchSnapshot()
-	ShowHelp(Histogram.BinHelpText(snapshot.lastResponse, snapshot.lastRequest, EventAttribute(event, "data-bin-index")))
-end
-
-function widget:ShowDiagnosticsHelp()
-	ShowHelp("Show field differences, request timing, field coverage, match details, and troubleshooting IDs.")
-end
-
-function widget:ShowUpdateHelp()
-	if state.viewModel.hasUpdate then ShowHelp(state.viewModel.updateHelpText) end
+local function SetCopyFeedback(target, text)
+	if not text or text == "" then return end
+	if target == "update" then
+		state.updateCopyFeedback = text
+	elseif target == "diagnostics" then
+		state.diagnosticsCopyFeedback = text
+	else
+		return
+	end
+	ApplyUiState()
 end
 
 function widget:CopyUpdateLink()
 	if not state.viewModel.hasUpdate then return end
 	if Spring.SetClipboard and pcall(Spring.SetClipboard, UPDATE_URL) then
-		ShowHelp("Widget installation link copied to clipboard.")
+		SetCopyFeedback("update", "Widget installation link copied to clipboard.")
 		return
 	end
-	ShowHelp("Widget update: " .. UPDATE_URL)
+	SetCopyFeedback("update", "Widget update: " .. UPDATE_URL)
 end
 
-function widget:HideHelp()
-	HideHelpPanels()
+function widget:ResetCopyFeedback(event)
+	local target = EventAttribute(event, "data-copy-target")
+	if target == "update" then
+		if not state.updateCopyFeedback then return end
+		state.updateCopyFeedback = nil
+	elseif target == "diagnostics" then
+		if not state.diagnosticsCopyFeedback then return end
+		state.diagnosticsCopyFeedback = nil
+	else
+		return
+	end
+	ApplyUiState()
 end
 
 function widget:ToggleDiffs()
@@ -672,10 +639,10 @@ function widget:CopyDiagnostics()
 	local diagnostics = state.viewModel.diagnosticsText
 	if not diagnostics or diagnostics == "" then return end
 	if Spring.SetClipboard and pcall(Spring.SetClipboard, diagnostics) then
-		ShowHelp("PvE Stats diagnostics copied to clipboard.")
+		SetCopyFeedback("diagnostics", "PvE Stats diagnostics copied to clipboard.")
 		return
 	end
-	ShowHelp("Clipboard unavailable. Diagnostics remain visible in the expanded panel.")
+	SetCopyFeedback("diagnostics", "Clipboard unavailable. Diagnostics remain visible in the expanded panel.")
 end
 
 function widget:CloseWindow()

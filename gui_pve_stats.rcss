@@ -599,17 +599,60 @@ div {
 	padding: 0 4dp;
 }
 
-.pve-stats-help {
-	color: #B8CADD;
-	font-size: 0.72em;
-	padding: 4dp 7dp;
-	background-color: #152431;
-	border-bottom-width: 1dp;
-	border-bottom-color: #263D50;
+.pve-stats-tooltip-anchor {
+	position: relative;
+	overflow: visible;
 }
 
-.pve-stats-table-help {
-	margin: 0 -4dp;
+.pve-stats-metric.pve-stats-tooltip-anchor {
+	cursor: help;
+}
+
+.pve-stats-tooltip {
+	display: block;
+	visibility: hidden;
+	position: absolute;
+	top: 100%;
+	left: 50%;
+	width: 300dp;
+	margin-top: 2dp;
+	margin-left: -150dp;
+	padding: 7dp 9dp;
+	box-sizing: border-box;
+	color: #F0F6FC;
+	background-color: #071018F7;
+	border-width: 1dp;
+	border-color: #56758C;
+	font-family: Exo 2;
+	font-size: 12dp;
+	font-weight: normal;
+	text-align: left;
+	white-space: normal;
+	z-index: 100;
+	pointer-events: none;
+}
+
+.pve-stats-tooltip-anchor:hover .pve-stats-tooltip {
+	visibility: visible;
+}
+
+.pve-stats-tooltip-align-start .pve-stats-tooltip {
+	left: 0;
+	right: auto;
+	margin-left: 0;
+}
+
+.pve-stats-tooltip-align-end .pve-stats-tooltip {
+	left: auto;
+	right: 0;
+	margin-left: 0;
+}
+
+.pve-stats-tooltip.pve-stats-tooltip-above {
+	top: auto;
+	bottom: 100%;
+	margin-top: 0;
+	margin-bottom: 2dp;
 }
 
 .pve-stats-empty {
