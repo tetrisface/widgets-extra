@@ -210,6 +210,7 @@ end
 
 local function testScheduledAndManualFetchUseTheDisabledGate()
 	local loadedWidget, environment = LoadWidget({autoFetch = false})
+	_G.Game.gameID = "abcdef0123456789abcdef0123456789"
 	loadedWidget:Initialize()
 	local api = assert(_G.WG.PveStatsRml)
 	local ok = api.ScheduleFetch(2)
@@ -263,6 +264,7 @@ end
 
 local function testInitialFetchAndShutdownCancellation()
 	local loadedWidget, environment = LoadWidget({autoFetch = true})
+	_G.Game.gameID = "abcdef0123456789abcdef0123456789"
 	loadedWidget:Initialize()
 	local api = assert(_G.WG.PveStatsRml)
 	T.truthy(api.GetLoadingState().active)
@@ -293,24 +295,24 @@ local function testGameIdCallbackFeedsTheScheduledRequest()
 	loadedWidget:Shutdown()
 end
 
-local function testLateGameIdSchedulesExactlyOneRecoveryRequest()
+local function testAutoFetchWaitsForGameIdAndSendsExactlyOnce()
 	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true})
 	_G.Game.gameID = nil
 	loadedWidget:Initialize()
-	loadedWidget:Update(0.6)
-	T.equals(environment.lastEncoded.game_id, nil)
+	loadedWidget:Update(10)
+	T.equals(environment.socketCreates, 0)
+	T.equals(environment.lastEncoded, nil)
 	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
-	CompleteRequest(loadedWidget)
 	loadedWidget:Update(0)
 	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
 	CompleteRequest(loadedWidget)
 	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
 	loadedWidget:Update(10)
-	T.equals(environment.socketCreates, 2)
+	T.equals(environment.socketCreates, 1)
 	loadedWidget:Shutdown()
 end
 
-local function testReplayGameIdDoesNotScheduleRecovery()
+local function testReplayFetchDoesNotWaitForGameId()
 	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true, isReplay = true})
 	_G.Game.gameID = nil
 	loadedWidget:Initialize()
@@ -323,7 +325,7 @@ local function testReplayGameIdDoesNotScheduleRecovery()
 	loadedWidget:Shutdown()
 end
 
-local function testGameIdDuringRetryWaitRecoversAfterTheRetrySettles()
+local function testRetriesKeepTheGameId()
 	local loadedWidget, environment = LoadWidget({
 		autoFetch = true,
 		luaSocket = true,
@@ -331,17 +333,35 @@ local function testGameIdDuringRetryWaitRecoversAfterTheRetrySettles()
 	})
 	_G.Game.gameID = nil
 	loadedWidget:Initialize()
-	loadedWidget:Update(0.6)
-	loadedWidget:Update(0)
-	loadedWidget:Update(0)
+	loadedWidget:Update(10)
+	T.equals(environment.socketCreates, 0)
 	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	loadedWidget:Update(0)
+	loadedWidget:Update(0)
 	loadedWidget:Update(2)
-	T.equals(environment.lastEncoded.game_id, nil, "retry rebuilt the original request")
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	loadedWidget:Update(2)
 	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 2)
+	loadedWidget:Shutdown()
+end
+
+local function testManualFetchWaitsForGameId()
+	local loadedWidget, environment = LoadWidget({autoFetch = false, luaSocket = true})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	local api = assert(_G.WG.PveStatsRml)
+	local requested, err = api.FetchStats()
+	T.equals(requested, false)
+	T.equals(err, "waiting_for_game_id")
+	T.equals(api.GetLoadingState().active, false)
+	loadedWidget:Update(10)
+	T.equals(environment.socketCreates, 0)
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
 	loadedWidget:Update(0)
 	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
 	CompleteRequest(loadedWidget)
-	T.equals(environment.socketCreates, 3)
+	T.equals(environment.socketCreates, 1)
 	loadedWidget:Shutdown()
 end
 
@@ -389,9 +409,10 @@ testScheduledAndManualFetchUseTheDisabledGate()
 testCopyFeedbackUsesNonLayoutTooltipState()
 testInitialFetchAndShutdownCancellation()
 testGameIdCallbackFeedsTheScheduledRequest()
-testLateGameIdSchedulesExactlyOneRecoveryRequest()
-testReplayGameIdDoesNotScheduleRecovery()
-testGameIdDuringRetryWaitRecoversAfterTheRetrySettles()
+testAutoFetchWaitsForGameIdAndSendsExactlyOnce()
+testReplayFetchDoesNotWaitForGameId()
+testRetriesKeepTheGameId()
+testManualFetchWaitsForGameId()
 testInitializationFailureUnwindsResources()
 testEngineGlobalsStayAtTheCompositionBoundary()
 

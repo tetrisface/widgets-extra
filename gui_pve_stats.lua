@@ -62,6 +62,7 @@ local state = {
 	viewModel = ViewModel.Empty(),
 	windowClosed = false,
 	gameId = nil,
+	waitingForGameIdFetch = false,
 	pendingGameIdRefresh = false,
 	gameOverEvent = nil,
 	showSpectators = false,
@@ -142,6 +143,11 @@ local function CurrentGameId()
 	return state.gameId
 end
 
+local function StatsRequestHasIdentity()
+	if SafeCall(Spring.IsReplay) == true then return true end
+	return CurrentGameId() ~= nil
+end
+
 local function LoadModOptionDefs()
 	if state.modOptionDefsLoaded then return state.modOptionDefs end
 	state.modOptionDefsLoaded = true
@@ -163,7 +169,12 @@ end
 
 local function BuildFetchRequest()
 	if not IsLuaSocketEnabled() then return nil, "lua_socket_disabled" end
-	return Request.Build(Spring, Game, CurrentGameId())
+	local gameId = CurrentGameId()
+	if not gameId and SafeCall(Spring.IsReplay) ~= true then
+		state.waitingForGameIdFetch = true
+		return nil, "waiting_for_game_id"
+	end
+	return Request.Build(Spring, Game, gameId)
 end
 
 local fetch = Fetch.New(Remote, remoteSocket, BuildFetchRequest, Request.Wire, Json)
@@ -443,6 +454,11 @@ local function HandleFetchEvent(event)
 end
 
 local function ScheduleFetch(delay)
+	if not StatsRequestHasIdentity() then
+		state.waitingForGameIdFetch = true
+		return false, "waiting_for_game_id"
+	end
+	state.waitingForGameIdFetch = false
 	return fetch:Schedule(delay, ScheduleSeconds())
 end
 
@@ -461,10 +477,10 @@ end
 
 local function RequestStats()
 	if FetchSnapshot().phase ~= "idle" then return false, "request_in_progress" end
+	local ok, err = ScheduleFetch(0)
+	if not ok then return false, err end
 	if state.loadingActive then CancelLoading() end
 	BeginLoading()
-	local ok, err = fetch:Request(ScheduleSeconds())
-	if not ok then CancelLoading() end
 	return ok, err
 end
 
@@ -562,8 +578,8 @@ function widget:Initialize()
 	end
 	InstallApi()
 	if GetConfigInt("PveStatsAutoFetch", DEFAULT_AUTO_FETCH) == 1 then
-		BeginLoading()
-		ScheduleFetch(0.5)
+		local scheduled = ScheduleFetch(0.5)
+		if scheduled then BeginLoading() end
 	end
 end
 
@@ -695,6 +711,11 @@ function widget:GameID(gameId)
 	if not resolved or resolved == state.gameId then return end
 	state.gameId = resolved
 	local snapshot = FetchSnapshot()
+	if state.waitingForGameIdFetch and snapshot.phase == "idle" then
+		local scheduled = ScheduleFetch(0)
+		if scheduled then BeginLoading() end
+		return
+	end
 	if snapshot.phase == "scheduled" and snapshot.lastRequest == nil then return end
 	if snapshot.lastRequest and snapshot.lastRequest.game_id == resolved then return end
 	if snapshot.lastRequest ~= nil or snapshot.phase ~= "idle" then
