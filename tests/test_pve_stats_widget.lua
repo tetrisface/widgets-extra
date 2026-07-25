@@ -68,6 +68,11 @@ local function InstallEnvironment(options)
 			environment.clipboard = value
 		end,
 		GetGameFrame = function() return 123 end,
+		GetGameRulesParam = function(key)
+			if key == "GameID" then return environment.gameRulesGameId end
+			return nil
+		end,
+		GetMyPlayerID = function() return options.myPlayerId or 7 end,
 		GetModOptions = function() return {} end,
 		GetPlayerList = function() return {} end,
 		GetTeamList = function() return {} end,
@@ -295,20 +300,22 @@ local function testGameIdCallbackFeedsTheScheduledRequest()
 	loadedWidget:Shutdown()
 end
 
-local function testAutoFetchWaitsForGameIdAndSendsExactlyOnce()
+local function testAutoFetchSendsImmediatelyThenPollsForGameIdRefresh()
 	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true})
 	_G.Game.gameID = nil
 	loadedWidget:Initialize()
-	loadedWidget:Update(10)
-	T.equals(environment.socketCreates, 0)
-	T.equals(environment.lastEncoded, nil)
-	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
-	loadedWidget:Update(0)
+	loadedWidget:Update(0.6)
+	T.equals(environment.lastEncoded.game_id, nil)
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 1)
+	environment.gameRulesGameId = "ABCDEF0123456789ABCDEF0123456789"
+	loadedWidget:Update(1)
+	T.equals(environment.socketCreates, 1, "ID refresh ignored its client jitter")
+	loadedWidget:Update(3)
 	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
 	CompleteRequest(loadedWidget)
-	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
 	loadedWidget:Update(10)
-	T.equals(environment.socketCreates, 1)
+	T.equals(environment.socketCreates, 2)
 	loadedWidget:Shutdown()
 end
 
@@ -325,7 +332,7 @@ local function testReplayFetchDoesNotWaitForGameId()
 	loadedWidget:Shutdown()
 end
 
-local function testRetriesKeepTheGameId()
+local function testGameIdDuringRetryWaitRefreshesAfterRetrySettles()
 	local loadedWidget, environment = LoadWidget({
 		autoFetch = true,
 		luaSocket = true,
@@ -333,35 +340,38 @@ local function testRetriesKeepTheGameId()
 	})
 	_G.Game.gameID = nil
 	loadedWidget:Initialize()
-	loadedWidget:Update(10)
-	T.equals(environment.socketCreates, 0)
+	loadedWidget:Update(0.6)
+	loadedWidget:Update(0)
+	loadedWidget:Update(0)
 	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
-	loadedWidget:Update(0)
-	loadedWidget:Update(0)
-	loadedWidget:Update(2)
-	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
 	loadedWidget:Update(2)
 	CompleteRequest(loadedWidget)
-	T.equals(environment.socketCreates, 2)
+	loadedWidget:Update(3)
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 3)
 	loadedWidget:Shutdown()
 end
 
-local function testManualFetchWaitsForGameId()
+local function testManualFetchWithoutGameIdGetsOneJitteredRefresh()
 	local loadedWidget, environment = LoadWidget({autoFetch = false, luaSocket = true})
 	_G.Game.gameID = nil
 	loadedWidget:Initialize()
 	local api = assert(_G.WG.PveStatsRml)
 	local requested, err = api.FetchStats()
-	T.equals(requested, false)
-	T.equals(err, "waiting_for_game_id")
-	T.equals(api.GetLoadingState().active, false)
-	loadedWidget:Update(10)
-	T.equals(environment.socketCreates, 0)
-	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	T.equals(requested, true)
+	T.equals(err, nil)
 	loadedWidget:Update(0)
-	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	T.equals(environment.lastEncoded.game_id, nil)
 	CompleteRequest(loadedWidget)
 	T.equals(environment.socketCreates, 1)
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	loadedWidget:Update(0)
+	T.equals(environment.socketCreates, 1, "ID refresh ignored its client jitter")
+	loadedWidget:Update(3)
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 2)
 	loadedWidget:Shutdown()
 end
 
@@ -409,10 +419,10 @@ testScheduledAndManualFetchUseTheDisabledGate()
 testCopyFeedbackUsesNonLayoutTooltipState()
 testInitialFetchAndShutdownCancellation()
 testGameIdCallbackFeedsTheScheduledRequest()
-testAutoFetchWaitsForGameIdAndSendsExactlyOnce()
+testAutoFetchSendsImmediatelyThenPollsForGameIdRefresh()
 testReplayFetchDoesNotWaitForGameId()
-testRetriesKeepTheGameId()
-testManualFetchWaitsForGameId()
+testGameIdDuringRetryWaitRefreshesAfterRetrySettles()
+testManualFetchWithoutGameIdGetsOneJitteredRefresh()
 testInitializationFailureUnwindsResources()
 testEngineGlobalsStayAtTheCompositionBoundary()
 

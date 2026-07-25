@@ -34,6 +34,8 @@ local DEFAULT_MINIMIZED = 0
 local DEFAULT_DEBUG_LOG = 0
 local DEFAULT_LOADING_EXPECTED_SECONDS = 19
 local LOADING_COMPLETE_HOLD_SECONDS = 0.25
+local GAME_ID_POLL_INTERVAL_SECONDS = 1
+local GAME_ID_REFRESH_JITTER_SECONDS = 3
 local DEFAULT_VIEW_WIDTH = 1920
 local DEFAULT_VIEW_HEIGHT = 1080
 local PANEL_WIDTH = 420
@@ -62,8 +64,10 @@ local state = {
 	viewModel = ViewModel.Empty(),
 	windowClosed = false,
 	gameId = nil,
-	waitingForGameIdFetch = false,
+	gameIdRefreshHandled = false,
+	gameIdPollDueSeconds = 0,
 	pendingGameIdRefresh = false,
+	pendingGameIdRefreshDelay = nil,
 	gameOverEvent = nil,
 	showSpectators = false,
 	minimized = false,
@@ -143,9 +147,13 @@ local function CurrentGameId()
 	return state.gameId
 end
 
-local function StatsRequestHasIdentity()
-	if SafeCall(Spring.IsReplay) == true then return true end
-	return CurrentGameId() ~= nil
+local function GameIdRefreshJitter(gameId)
+	local value = tostring(gameId or "") .. ":" .. tostring(SafeCall(Spring.GetMyPlayerID) or "")
+	local hash = 5381
+	for index = 1, #value do
+		hash = (hash * 33 + string.byte(value, index)) % 4294967296
+	end
+	return (hash % (GAME_ID_REFRESH_JITTER_SECONDS * 1000 + 1)) / 1000
 end
 
 local function LoadModOptionDefs()
@@ -169,12 +177,7 @@ end
 
 local function BuildFetchRequest()
 	if not IsLuaSocketEnabled() then return nil, "lua_socket_disabled" end
-	local gameId = CurrentGameId()
-	if not gameId and SafeCall(Spring.IsReplay) ~= true then
-		state.waitingForGameIdFetch = true
-		return nil, "waiting_for_game_id"
-	end
-	return Request.Build(Spring, Game, gameId)
+	return Request.Build(Spring, Game, CurrentGameId())
 end
 
 local fetch = Fetch.New(Remote, remoteSocket, BuildFetchRequest, Request.Wire, Json)
@@ -454,11 +457,6 @@ local function HandleFetchEvent(event)
 end
 
 local function ScheduleFetch(delay)
-	if not StatsRequestHasIdentity() then
-		state.waitingForGameIdFetch = true
-		return false, "waiting_for_game_id"
-	end
-	state.waitingForGameIdFetch = false
 	return fetch:Schedule(delay, ScheduleSeconds())
 end
 
@@ -468,19 +466,44 @@ SchedulePendingGameIdRefresh = function()
 	if snapshot.phase ~= "idle" then return false end
 	if snapshot.lastRequest and snapshot.lastRequest.game_id == state.gameId then
 		state.pendingGameIdRefresh = false
+		state.pendingGameIdRefreshDelay = nil
 		return false
 	end
-	local scheduled = ScheduleFetch(0)
-	if scheduled then state.pendingGameIdRefresh = false end
+	local scheduled = ScheduleFetch(state.pendingGameIdRefreshDelay or 0)
+	if scheduled then
+		state.pendingGameIdRefresh = false
+		state.pendingGameIdRefreshDelay = nil
+	end
 	return scheduled
+end
+
+local function ObserveGameId(resolved)
+	if not resolved or state.gameIdRefreshHandled then return false end
+	state.gameId = resolved
+	state.gameIdRefreshHandled = true
+	local snapshot = FetchSnapshot()
+	if snapshot.phase == "scheduled" and snapshot.lastRequest == nil then return false end
+	if snapshot.lastRequest == nil and snapshot.phase == "idle" then return false end
+	if snapshot.lastRequest and snapshot.lastRequest.game_id == resolved then return false end
+	state.pendingGameIdRefresh = true
+	state.pendingGameIdRefreshDelay = GameIdRefreshJitter(resolved)
+	return SchedulePendingGameIdRefresh()
+end
+
+local function PollGameId()
+	if state.gameIdRefreshHandled or SafeCall(Spring.IsReplay) == true then return end
+	local now = ScheduleSeconds()
+	if now < state.gameIdPollDueSeconds then return end
+	state.gameIdPollDueSeconds = now + GAME_ID_POLL_INTERVAL_SECONDS
+	ObserveGameId(Request.CurrentGameId(Spring, Game))
 end
 
 local function RequestStats()
 	if FetchSnapshot().phase ~= "idle" then return false, "request_in_progress" end
-	local ok, err = ScheduleFetch(0)
-	if not ok then return false, err end
 	if state.loadingActive then CancelLoading() end
 	BeginLoading()
+	local ok, err = fetch:Request(ScheduleSeconds())
+	if not ok then CancelLoading() end
 	return ok, err
 end
 
@@ -546,6 +569,10 @@ end
 function widget:Initialize()
 	state.windowClosed = false
 	state.gameId = Request.CurrentGameId(Spring, Game)
+	state.gameIdRefreshHandled = state.gameId ~= nil or SafeCall(Spring.IsReplay) == true
+	state.gameIdPollDueSeconds = 0
+	state.pendingGameIdRefresh = false
+	state.pendingGameIdRefreshDelay = nil
 	state.showSpectators = GetConfigInt("PveStatsShowSpectators", DEFAULT_SHOW_SPECTATORS) == 1
 	state.minimized = GetConfigInt("PveStatsMinimized", DEFAULT_MINIMIZED) == 1
 	local modelOk, initialViewModel = pcall(BuildViewModel, nil, nil, nil)
@@ -578,8 +605,8 @@ function widget:Initialize()
 	end
 	InstallApi()
 	if GetConfigInt("PveStatsAutoFetch", DEFAULT_AUTO_FETCH) == 1 then
-		local scheduled = ScheduleFetch(0.5)
-		if scheduled then BeginLoading() end
+		BeginLoading()
+		ScheduleFetch(0.5)
 	end
 end
 
@@ -697,6 +724,7 @@ function widget:Update(deltaTime)
 	state.fallbackClockSeconds = state.fallbackClockSeconds + math.max(0, tonumber(deltaTime) or 0)
 	gameOverFetch:Update(deltaTime, ScheduleSeconds())
 	if state.windowClosed then return end
+	PollGameId()
 	UpdateLoadingProgress()
 	local event = fetch:Update(deltaTime, ScheduleSeconds())
 	if event then
@@ -708,20 +736,7 @@ end
 
 function widget:GameID(gameId)
 	local resolved = Request.CurrentGameId(Spring, {gameID = gameId})
-	if not resolved or resolved == state.gameId then return end
-	state.gameId = resolved
-	local snapshot = FetchSnapshot()
-	if state.waitingForGameIdFetch and snapshot.phase == "idle" then
-		local scheduled = ScheduleFetch(0)
-		if scheduled then BeginLoading() end
-		return
-	end
-	if snapshot.phase == "scheduled" and snapshot.lastRequest == nil then return end
-	if snapshot.lastRequest and snapshot.lastRequest.game_id == resolved then return end
-	if snapshot.lastRequest ~= nil or snapshot.phase ~= "idle" then
-		state.pendingGameIdRefresh = true
-		SchedulePendingGameIdRefresh()
-	end
+	ObserveGameId(resolved)
 end
 
 function widget:GameOver(winningAllyTeams)
