@@ -5,6 +5,7 @@ It uses the current map, team size, encounter, and effective lobby settings to s
 *Network note: PvE Stats currently uses unencrypted HTTP, so requests and responses are not encrypted in transit.*
 
 There is also a companion webpage that presents more detailed info but no personal info: https://pve.bar
+
 # 1. Install
 
 ### __PowerShell__
