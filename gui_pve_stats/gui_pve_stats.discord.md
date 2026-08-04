@@ -8,16 +8,25 @@ It uses the current map, team size, encounter, and effective lobby settings to s
 
 ### __PowerShell__
 
-With BAR in its default location, this installs the required widget and responsibility-focused modules:
+With BAR in its default location, this installs the widget files:
 
 ```pwsh
 $widget = "gui_pve_stats"
 $folder = "$env:LOCALAPPDATA\Programs\Beyond-All-Reason\data\LuaUI\Widgets\$widget"
-$source = "https://raw.githubusercontent.com/tetrisface/community-widgets/main/$widget"
-$files = @("$widget.lua", "$widget.rml", "$widget.rcss",
-    "include/request.lua", "include/remote.lua", "include/fetch.lua",
-    "include/display.lua", "include/player_stats.lua", "include/histogram.lua",
-    "include/diagnostics.lua", "include/view_model.lua")
+$source = "https://raw.githubusercontent.com/tetrisface/widgets-extra/main/gui_pve_stats"
+$files = @(
+    "gui_pve_stats.lua",
+    "gui_pve_stats.rml",
+    "gui_pve_stats.rcss",
+    "include/request.lua",
+    "include/remote.lua",
+    "include/fetch.lua",
+    "include/display.lua",
+    "include/player_stats.lua",
+    "include/histogram.lua",
+    "include/diagnostics.lua",
+    "include/view_model.lua"
+)
 
 New-Item -ItemType Directory -Force -Path "$folder\include" | Out-Null
 
@@ -29,8 +38,8 @@ foreach ($file in $files) {
 ### __Manual__
 
 1. Open `%LOCALAPPDATA%\Programs\Beyond-All-Reason\data\LuaUI\Widgets`.
-2. Download the repository ZIP from <https://github.com/tetrisface/community-widgets/archive/refs/heads/main.zip>.
-3. Open the ZIP and then the `community-widgets-main` folder.
+2. Download the repository ZIP from <https://github.com/tetrisface/widgets-extra/archive/refs/heads/main.zip>.
+3. Open the ZIP and then the `widgets-extra-main` folder.
 4. Drag the `gui_pve_stats` folder into `Widgets`.
 5. Verify this folder structure:
 
@@ -39,12 +48,10 @@ LuaUI/
 └─ Widgets/
    └─ gui_pve_stats/
       ├─ gui_pve_stats.lua
-      ├─ gui_pve_stats.rml
-      ├─ gui_pve_stats.rcss
+      ├─ ...
       └─ include/
          ├─ request.lua
-         ├─ remote.lua
-         ├─ ...
+         ...
 ```
 
 # 2. Enable
@@ -52,7 +59,7 @@ LuaUI/
 Restart BAR or run `/luaui reload`, then enable **PvE Stats** in the widget list (F11).
 
 
----------- MESSAGE LIMIT BREAK ----------
+---------- DISCORD MESSAGE UNCHANGEABLE 2000 CHARACTER HARD LIMIT BREAK ----------
 
 
 # **Core features**

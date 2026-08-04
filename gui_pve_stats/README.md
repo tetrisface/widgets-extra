@@ -29,3 +29,5 @@ The complete outbound contract is split between [`request.lua`](include/request.
 Each fetch controller owns the lifecycle of its request and prevents duplicate work for that resource. The remote transport keeps operations independent and does not serialize unrelated operations, so future features can use separate controllers without sharing a global request lock.
 
 Each attempt has a 30-second deadline, a 256 KiB request body limit, a 64 KiB response headers limit, and a 1 MiB response body limit. The client does not follow redirects, authenticate, retain cookies, download files, or execute response content. The fixed endpoint currently uses unencrypted HTTP.
+
+Installation and runtime docs are in [`gui_pve_stats.install.md`](gui_pve_stats.install.md).

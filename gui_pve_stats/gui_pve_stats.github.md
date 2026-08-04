@@ -24,7 +24,7 @@ The remote connection is purpose-specific and fixed to `POST http://d29i3oohxql6
 ## Included
 
 - Lua, RML, RCSS, and helper modules
-- Community widget manifest and documentation
+- Widget manifest and documentation
 - Automated tests
 - Cover image
 
