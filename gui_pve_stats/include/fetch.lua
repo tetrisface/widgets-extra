@@ -1,8 +1,8 @@
 local Fetch = {}
 
-local MAX_ATTEMPTS = 5
-local RETRY_INITIAL_SECONDS = 2
-local RETRY_MAX_SECONDS = 30
+local DEFAULT_MAX_ATTEMPTS = 5
+local DEFAULT_RETRY_INITIAL_SECONDS = 2
+local DEFAULT_RETRY_MAX_SECONDS = 30
 
 local function Error(code)
 	return {code = tostring(code or "unknown_error"), retryable = false}
@@ -17,9 +17,9 @@ local function StableHash(value)
 	return string.format("%08x", hash)
 end
 
-local function RetryDelay(attempt)
+local function RetryDelay(attempt, initialSeconds, maximumSeconds)
 	local retryNumber = math.max(1, attempt - 1)
-	return math.min(RETRY_INITIAL_SECONDS * (2 ^ (retryNumber - 1)), RETRY_MAX_SECONDS)
+	return math.min(initialSeconds * (2 ^ (retryNumber - 1)), maximumSeconds)
 end
 
 local function ApplyMeta(evidence, meta)
@@ -29,7 +29,13 @@ local function ApplyMeta(evidence, meta)
 	evidence.trace_id = meta.trace_id
 end
 
-function Fetch.New(remote, socketApi, buildRequest, wireRequest, jsonApi)
+function Fetch.New(remote, socketApi, buildRequest, wireRequest, jsonApi, options)
+	options = options or {}
+	local maxAttempts = tonumber(options.maxAttempts) or DEFAULT_MAX_ATTEMPTS
+	local retryInitialSeconds = tonumber(options.retryInitialSeconds) or DEFAULT_RETRY_INITIAL_SECONDS
+	local retryMaxSeconds = tonumber(options.retryMaxSeconds) or DEFAULT_RETRY_MAX_SECONDS
+	local retryJitter = options.retryJitter
+	local targetName = options.targetName
 	local controller = {
 		phase = "idle",
 		operation = nil,
@@ -60,22 +66,23 @@ function Fetch.New(remote, socketApi, buildRequest, wireRequest, jsonApi)
 			controller.lastEvidence.http_status = err.httpStatus or controller.lastEvidence.http_status
 			controller.lastEvidence.status = "error"
 		end
-		if err.retryable == true and controller.attempt < MAX_ATTEMPTS then
-			local delay = RetryDelay(controller.attempt + 1)
+		if err.retryable == true and controller.attempt < maxAttempts then
+			local delay = RetryDelay(controller.attempt + 1, retryInitialSeconds, retryMaxSeconds)
+			if retryJitter then delay = math.max(0, tonumber(retryJitter(controller.attempt + 1, delay)) or delay) end
 			SetWait("retry_wait", delay, nowSeconds)
 			return {
 				kind = "retrying",
 				error = err,
 				delay = delay,
 				attempt = controller.attempt,
-				maxAttempts = MAX_ATTEMPTS,
+				maxAttempts = maxAttempts,
 			}
 		end
 		controller.phase = "idle"
 		controller.encodedBody = nil
 		controller.dueSeconds = nil
 		controller.delayRemaining = nil
-		return {kind = "failed", error = err, attempt = controller.attempt, maxAttempts = MAX_ATTEMPTS}
+		return {kind = "failed", error = err, attempt = controller.attempt, maxAttempts = maxAttempts}
 	end
 
 	local function StartAttempt(nowSeconds)
@@ -104,7 +111,7 @@ function Fetch.New(remote, socketApi, buildRequest, wireRequest, jsonApi)
 			),
 		}
 		controller.requestStartedSeconds = tonumber(nowSeconds)
-		local operation, remoteError = remote.Start(socketApi, body, nowSeconds)
+		local operation, remoteError = remote.Start(socketApi, body, nowSeconds, targetName)
 		if not operation then return FinishFailure(remoteError, nowSeconds) end
 		controller.operation = operation
 		controller.phase = "requesting"

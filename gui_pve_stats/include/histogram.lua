@@ -71,8 +71,7 @@ function HistogramFactory.New(Display, PlayerStats)
 		return nil
 	end
 
-	function Histogram.HelpText(response, request)
-		local data = Data(response, request)
+	local function HelpText(data)
 		if not data then return "" end
 		local ownText = data.ownPlayer
 			and (" Cyan shows your " .. Display.Number(data.totalOwnClears, 0) .. " eligible clears.")
@@ -84,11 +83,14 @@ function HistogramFactory.New(Display, PlayerStats)
 			.. " Cyan above dark means this range contains a larger share of your clears than of all played games."
 	end
 
-	function Histogram.BinHelpText(response, request, binIndex)
-		local data = Data(response, request)
+	function Histogram.HelpText(response, request)
+		return HelpText(Data(response, request))
+	end
+
+	local function BinHelpText(data, binIndex)
 		local index = tonumber(binIndex)
 		local bin = data and index and data.bins[index]
-		if not bin then return Histogram.HelpText(response, request) end
+		if not bin then return HelpText(data) end
 		local games = tonumber(bin.games) or 0
 		local wins = tonumber(bin.wins) or 0
 		local ownClears = tonumber(data.ownBins[index]) or 0
@@ -116,12 +118,18 @@ function HistogramFactory.New(Display, PlayerStats)
 		return table.concat(parts, " ")
 	end
 
+	function Histogram.BinHelpText(response, request, binIndex)
+		return BinHelpText(Data(response, request), binIndex)
+	end
+
 	function Histogram.Build(response, request)
 		local data = Data(response, request)
 		if not data then
-			return {histogramBins = {}, histogramCaption = "", hasHistogram = false}
+			return {histogramBins = {}, histogramCaption = "", histogramHelpText = "", hasHistogram = false}
 		end
 		local rows = {}
+		local startAlignmentEnd = math.ceil(#data.bins / 3)
+		local endAlignmentStart = math.floor(#data.bins * 2 / 3) + 1
 		for index, bin in ipairs(data.bins) do
 			local games = tonumber(bin.games) or 0
 			local ownClears = tonumber(data.ownBins[index]) or 0
@@ -137,6 +145,9 @@ function HistogramFactory.New(Display, PlayerStats)
 				ownHeight = tostring(ownHeight) .. "%",
 				hasOwn = ownClears > 0,
 				isCurrent = ContainsDifficulty(bin, data.currentDifficulty),
+				helpText = BinHelpText(data, index),
+				tooltipAlignStart = index <= startAlignmentEnd,
+				tooltipAlignEnd = index > startAlignmentEnd and index >= endAlignmentStart,
 			}
 		end
 		local caption
@@ -152,7 +163,12 @@ function HistogramFactory.New(Display, PlayerStats)
 		end
 		local highest = tonumber(data.challenges.highest_challenge_cleared)
 		if highest then caption = caption .. " - your best " .. Display.Number(highest, 1) end
-		return {histogramBins = rows, histogramCaption = caption, hasHistogram = true}
+		return {
+			histogramBins = rows,
+			histogramCaption = caption,
+			histogramHelpText = HelpText(data),
+			hasHistogram = true,
+		}
 	end
 
 	return Histogram

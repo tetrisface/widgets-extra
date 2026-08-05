@@ -5,6 +5,7 @@ PVE_STATS_TEST_ROOT = root
 
 for _, test in ipairs({
 	"test_pve_stats_request.lua",
+	"test_pve_stats_game_over.lua",
 	"test_pve_stats_remote.lua",
 	"test_pve_stats_fetch.lua",
 	"test_pve_stats_presenter.lua",

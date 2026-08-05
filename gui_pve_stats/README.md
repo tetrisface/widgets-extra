@@ -1,8 +1,12 @@
 ===== PvE STATS =====
 
-PvE Stats brings difficulty and accomplishment context into Beyond All Reason PvE games. It queries the PvE Stats service with the current game context, then presents the result in a compact RmlUi panel.
+View lobby difficulty and personal accomplishments from PvE games, shown directly in an in-game RmlUi panel.
+
+It uses the current map, team size, encounter, and effective lobby settings to show a representative-team win chance and where the setup sits among eligible played games.
 
 Network note: PvE Stats currently uses unencrypted HTTP, so requests and responses are not encrypted in transit.
+
+There is also a companion webpage that presents more detailed info but no personal info: https://pve.bar
 
 --- CORE FEATURES ---
 
@@ -24,7 +28,7 @@ If the service is still starting or temporarily busy, the widget retries expecte
 
 --- REMOTE CONNECTION ---
 
-The complete outbound contract is split between [`request.lua`](include/request.lua) and [`remote.lua`](include/remote.lua). The widget sends a JSON object containing exactly seven allowlisted top-level fields with `POST http://d29i3oohxql6zz.cloudfront.net:80/stats`. Nested fields contain the complete game settings and encounter context required by the service. It fetches once during initial startup and on explicit manual or scheduled requests; it does not poll periodically.
+The complete outbound contract is split between [`request.lua`](include/request.lua), [`game_over.lua`](include/game_over.lua), and [`remote.lua`](include/remote.lua). The widget sends a JSON object containing up to eight allowlisted top-level fields with `POST http://d29i3oohxql6zz.cloudfront.net:80/api/v1/stats`; the eighth is the optional normalized game ID. Nested fields contain the complete game settings and encounter context required by the service. The compatibility `/stats` target remains compile-time allowlisted for rollback. It fetches statistics once during initial startup and on explicit manual or scheduled requests; it does not poll periodically. When Spring reports `GameOver`, a separate bounded controller posts one aggregate event to `/api/v1/live-games/events` and does not include player data.
 
 Each fetch controller owns the lifecycle of its request and prevents duplicate work for that resource. The remote transport keeps operations independent and does not serialize unrelated operations, so future features can use separate controllers without sharing a global request lock.
 

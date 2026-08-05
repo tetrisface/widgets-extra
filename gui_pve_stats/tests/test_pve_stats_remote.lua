@@ -42,8 +42,8 @@ local function SocketForResponse(raw, options)
 	return socket
 end
 
-local function PollToCompletion(socket, body)
-	local operation, err = Remote.Start(socket, body or "{}", 0)
+local function PollToCompletion(socket, body, targetName)
+	local operation, err = Remote.Start(socket, body or "{}", 0, targetName)
 	T.truthy(operation)
 	T.equals(err, nil)
 	for index = 1, 8 do
@@ -51,6 +51,19 @@ local function PollToCompletion(socket, body)
 		if finished then return response, pollError, meta, operation end
 	end
 	error("remote operation did not finish")
+end
+
+local function testGameEventsUseOnlyTheAllowlistedPath()
+	local raw = "HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"accepted\":true}"
+	local socket = SocketForResponse(raw)
+	local response, err = PollToCompletion(socket, "{}", "game_events")
+	T.equals(response, '{"accepted":true}')
+	T.equals(err, nil)
+	T.contains(socket.request, "POST /api/v1/live-games/events HTTP/1.1\r\n")
+	T.equals(Remote.Target("game_events").path, "/api/v1/live-games/events")
+	local operation, invalid = Remote.Start(socket, "{}", 0, "caller_supplied")
+	T.equals(operation, nil)
+	T.equals(invalid.code, "invalid_remote_target")
 end
 
 local function testFixedTargetAndRequestContract()
@@ -62,7 +75,7 @@ local function testFixedTargetAndRequestContract()
 	T.equals(socket.connectedHost, "d29i3oohxql6zz.cloudfront.net")
 	T.equals(socket.connectedPort, 80)
 	T.equals(socket.timeout, 0)
-	T.contains(socket.request, "POST /stats HTTP/1.1\r\n")
+	T.contains(socket.request, "POST /api/v1/stats HTTP/1.1\r\n")
 	T.contains(socket.request, "Host: d29i3oohxql6zz.cloudfront.net:80\r\n")
 	T.contains(socket.request, "Content-Type: application/json\r\n")
 	T.notContains(socket.request, "Authorization:")
@@ -75,6 +88,7 @@ local function testModuleHasOnlyTheAuditedOperations()
 	local target = Remote.Target()
 	target.host = "changed.test"
 	T.equals(Remote.Target().host, "d29i3oohxql6zz.cloudfront.net")
+	T.equals(Remote.Target("stats_compat").path, "/stats")
 end
 
 local function testDisabledSocketCreatesNothing()
@@ -219,8 +233,8 @@ local function testReviewerAuditSurfaceIsLinkedAndComplete()
 	local readme = T.read(root .. "README.md")
 	T.contains(readme, "[`request.lua`](include/request.lua)")
 	T.contains(readme, "[`remote.lua`](include/remote.lua)")
-	T.contains(readme, "POST http://d29i3oohxql6zz.cloudfront.net:80/stats")
-	T.contains(readme, "seven")
+	T.contains(readme, "POST http://d29i3oohxql6zz.cloudfront.net:80/api/v1/stats")
+	T.contains(readme, "eight")
 	T.contains(readme, "does not poll periodically")
 	T.contains(readme, "does not serialize unrelated operations")
 	T.contains(readme, "30-second deadline")
@@ -231,6 +245,7 @@ local function testReviewerAuditSurfaceIsLinkedAndComplete()
 end
 
 testFixedTargetAndRequestContract()
+testGameEventsUseOnlyTheAllowlistedPath()
 testModuleHasOnlyTheAuditedOperations()
 testDisabledSocketCreatesNothing()
 testOperationsDoNotShareGlobalRequestState()

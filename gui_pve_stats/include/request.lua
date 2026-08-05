@@ -1,6 +1,7 @@
 local Request = {}
 
 local WIRE_FIELDS = {
+	"game_id",
 	"ai_type",
 	"map",
 	"game_settings",
@@ -21,6 +22,22 @@ local function SafeCall(object, methodName, ...)
 		return nil
 	end
 	return first, second, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth, eleventh
+end
+
+local function NormalizeGameId(value)
+	local gameId = string.lower(tostring(value or ""))
+	if #gameId ~= 32 or string.find(gameId, "[^0-9a-f]") then return nil end
+	return gameId
+end
+
+function Request.CurrentGameId(springApi, gameApi, resolvedGameId)
+	if SafeCall(springApi, "IsReplay") == true then return nil end
+	local gameId = resolvedGameId
+	if gameId == nil then
+		gameId = gameApi and (gameApi.gameID or gameApi.gameId or gameApi.game_id)
+	end
+	if gameId == nil then gameId = SafeCall(springApi, "GetGameRulesParam", "GameID") end
+	return NormalizeGameId(gameId)
 end
 
 local function CollectModOptions(springApi)
@@ -467,7 +484,7 @@ function Request.Wire(request)
 	return wire
 end
 
-function Request.Build(springApi, gameApi)
+function Request.Build(springApi, gameApi, resolvedGameId)
 	local aiType, aiTypeSource, enemyAiCount, enemyAiTeamIds = DetectAiTypeWithSource(springApi)
 	if not aiType then
 		return nil, aiTypeSource or "missing_ai_type"
@@ -499,6 +516,7 @@ function Request.Build(springApi, gameApi)
 	end
 
 	local request = {
+		game_id = Request.CurrentGameId(springApi, gameApi, resolvedGameId),
 		ai_type = aiType,
 		map = tostring(mapName),
 		game_settings = CollectModOptions(springApi),

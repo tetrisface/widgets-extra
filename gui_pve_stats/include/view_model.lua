@@ -78,6 +78,7 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 			evidenceSummaryText = "",
 			diagnosticsText = "PvE Stats diagnostics",
 			histogramCaption = "",
+			histogramHelpText = "",
 			diffComparisonLabel = "Similar",
 			diffTitle = "",
 			diffToggleText = "",

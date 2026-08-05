@@ -24,6 +24,7 @@ local INCLUDE_PATH = WIDGET_PATH .. "include/"
 local RML_PATH = WIDGET_PATH .. "gui_pve_stats.rml"
 local PANEL_ID = "pve-stats-root"
 local UPDATE_URL = "https://discord.com/channels/549281623154229250/1527813859497476270"
+local DIAGNOSTICS_COPY_HELP_TEXT = "Copy diagnostics to clipboard."
 
 local DEFAULT_AUTO_FETCH = 1
 local DEFAULT_EVIDENCE_LOG = 1
@@ -33,6 +34,8 @@ local DEFAULT_MINIMIZED = 0
 local DEFAULT_DEBUG_LOG = 0
 local DEFAULT_LOADING_EXPECTED_SECONDS = 19
 local LOADING_COMPLETE_HOLD_SECONDS = 0.25
+local GAME_ID_POLL_INTERVAL_SECONDS = 1
+local GAME_ID_REFRESH_JITTER_SECONDS = 3
 local DEFAULT_VIEW_WIDTH = 1920
 local DEFAULT_VIEW_HEIGHT = 1080
 local PANEL_WIDTH = 420
@@ -47,6 +50,7 @@ local Diagnostics = VFS.Include(INCLUDE_PATH .. "diagnostics.lua").New(Display)
 local ViewModel = VFS.Include(INCLUDE_PATH .. "view_model.lua").New(Display, PlayerStats, Histogram, Diagnostics)
 local Remote = VFS.Include(INCLUDE_PATH .. "remote.lua")
 local Fetch = VFS.Include(INCLUDE_PATH .. "fetch.lua")
+local GameOverEvent = VFS.Include(INCLUDE_PATH .. "game_over.lua")
 local Json = Json or VFS.Include("common/luaUtilities/json.lua")
 
 -- This is the only production injection of the LuaSocket global. All remote
@@ -59,6 +63,12 @@ local state = {
 	dmHandle = nil,
 	viewModel = ViewModel.Empty(),
 	windowClosed = false,
+	gameId = nil,
+	gameIdRefreshHandled = false,
+	gameIdPollDueSeconds = 0,
+	pendingGameIdRefresh = false,
+	pendingGameIdRefreshDelay = nil,
+	gameOverEvent = nil,
 	showSpectators = false,
 	minimized = false,
 	playerTab = "awards",
@@ -78,10 +88,8 @@ local state = {
 	loadingStartedWithResponse = false,
 	loadingCompletedDueSeconds = nil,
 	loadingProgressPercent = nil,
-	helpText = "",
-	helpVisible = false,
-	tableHelpText = "",
-	tableHelpVisible = false,
+	updateCopyFeedback = nil,
+	diagnosticsCopyFeedback = nil,
 }
 
 local function SafeCall(method, ...)
@@ -135,10 +143,17 @@ local function WallClockSeconds()
 end
 
 local function CurrentGameId()
-	local gameID = Game and Game.gameID
-	if gameID == nil and Spring.GetGameRulesParam then gameID = SafeCall(Spring.GetGameRulesParam, "GameID") end
-	if gameID == nil or tostring(gameID) == "" then return nil end
-	return tostring(gameID)
+	state.gameId = state.gameId or Request.CurrentGameId(Spring, Game)
+	return state.gameId
+end
+
+local function GameIdRefreshJitter(gameId)
+	local value = tostring(gameId or "") .. ":" .. tostring(SafeCall(Spring.GetMyPlayerID) or "")
+	local hash = 5381
+	for index = 1, #value do
+		hash = (hash * 33 + string.byte(value, index)) % 4294967296
+	end
+	return (hash % (GAME_ID_REFRESH_JITTER_SECONDS * 1000 + 1)) / 1000
 end
 
 local function LoadModOptionDefs()
@@ -162,10 +177,28 @@ end
 
 local function BuildFetchRequest()
 	if not IsLuaSocketEnabled() then return nil, "lua_socket_disabled" end
-	return Request.Build(Spring, Game)
+	return Request.Build(Spring, Game, CurrentGameId())
 end
 
 local fetch = Fetch.New(Remote, remoteSocket, BuildFetchRequest, Request.Wire, Json)
+
+local function BuildGameOverRequest()
+	if not IsLuaSocketEnabled() then return nil, "lua_socket_disabled" end
+	if not state.gameOverEvent then return nil, "missing_game_over_event" end
+	return state.gameOverEvent
+end
+
+local function GameEventRetryJitter(attempt, delay)
+	return GameOverEvent.RetryJitter(CurrentGameId(), attempt, delay)
+end
+
+local gameOverFetch = Fetch.New(Remote, remoteSocket, BuildGameOverRequest, GameOverEvent.Wire, Json, {
+	targetName = "game_events",
+	maxAttempts = 4,
+	retryInitialSeconds = 1,
+	retryMaxSeconds = 8,
+	retryJitter = GameEventRetryJitter,
+})
 
 local function FetchSnapshot()
 	return fetch:Snapshot()
@@ -190,7 +223,7 @@ local function TransportEvidence()
 	return evidence
 end
 
-local function ViewOptions()
+local function ViewOptions(request)
 	return {
 		showSpectators = state.showSpectators,
 		playerTab = state.playerTab,
@@ -199,6 +232,7 @@ local function ViewOptions()
 		modOptionSteps = ModOptionStepLookup(),
 		sourceWindowNowSeconds = WallClockSeconds(),
 		currentGameId = CurrentGameId(),
+		sentGameId = request and request.game_id,
 		transportEvidence = TransportEvidence(),
 		sortColumn = state.playerSortColumn,
 		sortDescending = state.playerSortDescending,
@@ -206,7 +240,7 @@ local function ViewOptions()
 end
 
 local function BuildViewModel(response, errorCode, request)
-	return ViewModel.Build(response, errorCode, request, Request.PlayerColorLookup(Spring), ViewOptions())
+	return ViewModel.Build(response, errorCode, request, Request.PlayerColorLookup(Spring), ViewOptions(request))
 end
 
 local function ApplyUiState()
@@ -216,14 +250,14 @@ local function ApplyUiState()
 	dm.minimizeText = state.minimized and "[]" or "-"
 	dm.loadingVisible = state.loadingActive
 	dm.loadingWidth = string.format("%.1f%%", state.loadingProgressPercent or 0)
-	dm.helpText = state.helpText
-	dm.helpVisible = state.helpVisible
-	dm.tableHelpText = state.tableHelpText
-	dm.tableHelpVisible = state.tableHelpVisible
+	dm.updateTooltipText = state.updateCopyFeedback or state.viewModel.updateHelpText or ""
+	dm.diagnosticsCopyTooltipText = state.diagnosticsCopyFeedback or DIAGNOSTICS_COPY_HELP_TEXT
 end
 
 local function ApplyViewModel(viewModel)
 	state.viewModel = viewModel or ViewModel.Empty()
+	state.updateCopyFeedback = nil
+	state.diagnosticsCopyFeedback = nil
 	if state.dmHandle then
 		for key, value in pairs(state.viewModel) do state.dmHandle[key] = value end
 		ApplyUiState()
@@ -293,23 +327,6 @@ local function UpdateLoadingProgress()
 	if elapsed then SetLoadingProgress(ViewModel.EstimatedLoadingProgress(elapsed, LoadingExpectedSeconds())) end
 end
 
-local function ShowHelpIn(tableHelp, text)
-	if not text or text == "" then return end
-	state.helpVisible = not tableHelp
-	state.tableHelpVisible = tableHelp
-	if tableHelp then state.tableHelpText = text else state.helpText = text end
-	ApplyUiState()
-end
-
-local function ShowHelp(text) ShowHelpIn(false, text) end
-local function ShowTableHelp(text) ShowHelpIn(true, text) end
-
-local function HideHelpPanels()
-	state.helpVisible = false
-	state.tableHelpVisible = false
-	ApplyUiState()
-end
-
 local function LogMessage(message)
 	local text = LOG_PREFIX .. " " .. tostring(message or "")
 	if Spring.Echo then
@@ -327,6 +344,7 @@ local function DiagnosticEvidence()
 	local snapshot = FetchSnapshot()
 	return Diagnostics.Evidence(snapshot.lastResponse, {
 		currentGameId = CurrentGameId(),
+		sentGameId = snapshot.lastRequest and snapshot.lastRequest.game_id,
 		transportEvidence = TransportEvidence(),
 	})
 end
@@ -408,6 +426,8 @@ local function RetryView(event)
 	ApplyViewModel(view)
 end
 
+local SchedulePendingGameIdRefresh
+
 local function HandleFetchEvent(event)
 	if not event then return end
 	if event.kind == "started" then
@@ -421,6 +441,7 @@ local function HandleFetchEvent(event)
 		ResetSourceWindowAgeClock(event.response)
 		CompleteLoading()
 		RefreshViewModel()
+		SchedulePendingGameIdRefresh()
 		return
 	end
 	if event.kind == "retrying" then
@@ -431,11 +452,50 @@ local function HandleFetchEvent(event)
 		CancelLoading()
 		ResetSourceWindowAgeClock(nil)
 		RefreshViewModel()
+		SchedulePendingGameIdRefresh()
 	end
 end
 
 local function ScheduleFetch(delay)
 	return fetch:Schedule(delay, ScheduleSeconds())
+end
+
+SchedulePendingGameIdRefresh = function()
+	if not state.pendingGameIdRefresh or not state.gameId then return false end
+	local snapshot = FetchSnapshot()
+	if snapshot.phase ~= "idle" then return false end
+	if snapshot.lastRequest and snapshot.lastRequest.game_id == state.gameId then
+		state.pendingGameIdRefresh = false
+		state.pendingGameIdRefreshDelay = nil
+		return false
+	end
+	local scheduled = ScheduleFetch(state.pendingGameIdRefreshDelay or 0)
+	if scheduled then
+		state.pendingGameIdRefresh = false
+		state.pendingGameIdRefreshDelay = nil
+	end
+	return scheduled
+end
+
+local function ObserveGameId(resolved)
+	if not resolved or state.gameIdRefreshHandled then return false end
+	state.gameId = resolved
+	state.gameIdRefreshHandled = true
+	local snapshot = FetchSnapshot()
+	if snapshot.phase == "scheduled" and snapshot.lastRequest == nil then return false end
+	if snapshot.lastRequest == nil and snapshot.phase == "idle" then return false end
+	if snapshot.lastRequest and snapshot.lastRequest.game_id == resolved then return false end
+	state.pendingGameIdRefresh = true
+	state.pendingGameIdRefreshDelay = GameIdRefreshJitter(resolved)
+	return SchedulePendingGameIdRefresh()
+end
+
+local function PollGameId()
+	if state.gameIdRefreshHandled or SafeCall(Spring.IsReplay) == true then return end
+	local now = ScheduleSeconds()
+	if now < state.gameIdPollDueSeconds then return end
+	state.gameIdPollDueSeconds = now + GAME_ID_POLL_INTERVAL_SECONDS
+	ObserveGameId(Request.CurrentGameId(Spring, Game))
 end
 
 local function RequestStats()
@@ -454,16 +514,14 @@ local function ModelWithUiState()
 	model.minimizeText = state.minimized and "[]" or "-"
 	model.loadingVisible = state.loadingActive
 	model.loadingWidth = string.format("%.1f%%", state.loadingProgressPercent or 0)
-	model.helpText = state.helpText
-	model.helpVisible = state.helpVisible
-	model.tableHelpText = state.tableHelpText
-	model.tableHelpVisible = state.tableHelpVisible
+	model.updateTooltipText = state.updateCopyFeedback or state.viewModel.updateHelpText or ""
+	model.diagnosticsCopyTooltipText = state.diagnosticsCopyFeedback or DIAGNOSTICS_COPY_HELP_TEXT
 	return model
 end
 
 local function InstallApi()
 	WG.PveStatsRml = {
-		BuildRequest = function() return Request.Build(Spring, Game) end,
+		BuildRequest = function() return Request.Build(Spring, Game, CurrentGameId()) end,
 		FetchStats = RequestStats,
 		ScheduleFetch = ScheduleFetch,
 		GetLastRequest = function() return FetchSnapshot().lastRequest end,
@@ -510,6 +568,11 @@ end
 
 function widget:Initialize()
 	state.windowClosed = false
+	state.gameId = Request.CurrentGameId(Spring, Game)
+	state.gameIdRefreshHandled = state.gameId ~= nil or SafeCall(Spring.IsReplay) == true
+	state.gameIdPollDueSeconds = 0
+	state.pendingGameIdRefresh = false
+	state.pendingGameIdRefreshDelay = nil
 	state.showSpectators = GetConfigInt("PveStatsShowSpectators", DEFAULT_SHOW_SPECTATORS) == 1
 	state.minimized = GetConfigInt("PveStatsMinimized", DEFAULT_MINIMIZED) == 1
 	local modelOk, initialViewModel = pcall(BuildViewModel, nil, nil, nil)
@@ -589,52 +652,39 @@ function widget:SortPlayerColumn(event)
 	RefreshViewModel()
 end
 
-function widget:ShowPlayerStatHelp(event)
-	local column = tonumber(EventAttribute(event, "data-column"))
-	if column and column >= 1 and column <= 3 then ShowTableHelp(PlayerStats.HelpText(state.playerTab, column)) end
-end
-
-function widget:ShowSummaryHelp(event)
-	local help = EventAttribute(event, "data-help")
-	local texts = {
-		win = state.viewModel.winChanceHelpText,
-		challenge = state.viewModel.challengeHelpText,
-		percentile = state.viewModel.difficultyPercentileHelpText,
-		training = state.viewModel.trainingGamesHelpText,
-		match = state.viewModel.matchHelpText,
-	}
-	ShowHelp(texts[help])
-end
-
-function widget:ShowHistogramHelp()
-	local snapshot = FetchSnapshot()
-	ShowHelp(Histogram.HelpText(snapshot.lastResponse, snapshot.lastRequest))
-end
-
-function widget:ShowHistogramBinHelp(event)
-	local snapshot = FetchSnapshot()
-	ShowHelp(Histogram.BinHelpText(snapshot.lastResponse, snapshot.lastRequest, EventAttribute(event, "data-bin-index")))
-end
-
-function widget:ShowDiagnosticsHelp()
-	ShowHelp("Show field differences, request timing, field coverage, match details, and troubleshooting IDs.")
-end
-
-function widget:ShowUpdateHelp()
-	if state.viewModel.hasUpdate then ShowHelp(state.viewModel.updateHelpText) end
+local function SetCopyFeedback(target, text)
+	if not text or text == "" then return end
+	if target == "update" then
+		state.updateCopyFeedback = text
+	elseif target == "diagnostics" then
+		state.diagnosticsCopyFeedback = text
+	else
+		return
+	end
+	ApplyUiState()
 end
 
 function widget:CopyUpdateLink()
 	if not state.viewModel.hasUpdate then return end
 	if Spring.SetClipboard and pcall(Spring.SetClipboard, UPDATE_URL) then
-		ShowHelp("Widget installation link copied to clipboard.")
+		SetCopyFeedback("update", "Widget installation link copied to clipboard.")
 		return
 	end
-	ShowHelp("Widget update: " .. UPDATE_URL)
+	SetCopyFeedback("update", "Widget update: " .. UPDATE_URL)
 end
 
-function widget:HideHelp()
-	HideHelpPanels()
+function widget:ResetCopyFeedback(event)
+	local target = EventAttribute(event, "data-copy-target")
+	if target == "update" then
+		if not state.updateCopyFeedback then return end
+		state.updateCopyFeedback = nil
+	elseif target == "diagnostics" then
+		if not state.diagnosticsCopyFeedback then return end
+		state.diagnosticsCopyFeedback = nil
+	else
+		return
+	end
+	ApplyUiState()
 end
 
 function widget:ToggleDiffs()
@@ -652,10 +702,10 @@ function widget:CopyDiagnostics()
 	local diagnostics = state.viewModel.diagnosticsText
 	if not diagnostics or diagnostics == "" then return end
 	if Spring.SetClipboard and pcall(Spring.SetClipboard, diagnostics) then
-		ShowHelp("PvE Stats diagnostics copied to clipboard.")
+		SetCopyFeedback("diagnostics", "PvE Stats diagnostics copied to clipboard.")
 		return
 	end
-	ShowHelp("Clipboard unavailable. Diagnostics remain visible in the expanded panel.")
+	SetCopyFeedback("diagnostics", "Clipboard unavailable. Diagnostics remain visible in the expanded panel.")
 end
 
 function widget:CloseWindow()
@@ -667,11 +717,14 @@ end
 function widget:Shutdown()
 	state.windowClosed = true
 	ReleaseWindowResources()
+	pcall(gameOverFetch.Cancel, gameOverFetch)
 end
 
 function widget:Update(deltaTime)
-	if state.windowClosed then return end
 	state.fallbackClockSeconds = state.fallbackClockSeconds + math.max(0, tonumber(deltaTime) or 0)
+	gameOverFetch:Update(deltaTime, ScheduleSeconds())
+	if state.windowClosed then return end
+	PollGameId()
 	UpdateLoadingProgress()
 	local event = fetch:Update(deltaTime, ScheduleSeconds())
 	if event then
@@ -679,6 +732,19 @@ function widget:Update(deltaTime)
 		return
 	end
 	UpdateSourceWindowAgeClock()
+end
+
+function widget:GameID(gameId)
+	local resolved = Request.CurrentGameId(Spring, {gameID = gameId})
+	ObserveGameId(resolved)
+end
+
+function widget:GameOver(winningAllyTeams)
+	if state.gameOverEvent then return end
+	local event = GameOverEvent.Build(CurrentGameId(), winningAllyTeams or {}, SafeCall(Spring.GetGameFrame))
+	if not event then return end
+	state.gameOverEvent = event
+	gameOverFetch:Request(ScheduleSeconds())
 end
 
 function widget:RecvLuaMsg(message)

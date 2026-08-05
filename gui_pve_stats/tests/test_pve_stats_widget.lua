@@ -6,6 +6,7 @@ local function InstallEnvironment(options)
 	local environment = {
 		configReads = {},
 		configWrites = {},
+		encodedRequests = {},
 		socketCreates = 0,
 		removedModels = 0,
 	}
@@ -13,20 +14,48 @@ local function InstallEnvironment(options)
 	_G.WG = {}
 	_G.Game = {mapName = "Test Map", gameID = "game-id", modOptions = {}}
 	_G.Json = {
-		encode = function() return "{}" end,
+		encode = function(value)
+			environment.lastEncoded = value
+			environment.encodedRequests[#environment.encodedRequests + 1] = value
+			return "{}"
+		end,
 		decode = function() return {} end,
+	}
+	local socketClient = {
+		settimeout = function() end,
+		connect = function() return true end,
+		send = function(_, request)
+			environment.sentRequest = request
+			return #request
+		end,
+		receive = function()
+			local body = environment.socketCreates == 1 and options.retryFirst
+				and '{"error":"temporarily_unavailable"}'
+				or '{"accepted":true}'
+			local status = environment.socketCreates == 1 and options.retryFirst
+				and "500 Internal Server Error"
+				or "202 Accepted"
+			return nil, "closed", "HTTP/1.1 " .. status .. "\r\nContent-Type: application/json\r\nContent-Length: "
+				.. tostring(#body) .. "\r\n\r\n" .. body
+		end,
+		close = function() environment.socketClosed = true end,
 	}
 	_G.socket = {
 		tcp = function()
 			environment.socketCreates = environment.socketCreates + 1
+			if options.luaSocket then return socketClient end
 			return nil
 		end,
-		select = function() return {}, {} end,
+		select = function(readable, writable)
+			if #writable > 0 then return {}, {socketClient}, nil end
+			if #readable > 0 then return {socketClient}, {}, nil end
+			return {}, {}, nil
+		end,
 	}
 	_G.Spring = {
 		GetConfigInt = function(key, defaultValue)
 			environment.configReads[key] = true
-			if key == "LuaSocketEnabled" then return 0 end
+			if key == "LuaSocketEnabled" then return options.luaSocket and 1 or 0 end
 			if key == "PveStatsAutoFetch" then return options.autoFetch and 1 or 0 end
 			return defaultValue
 		end,
@@ -34,7 +63,26 @@ local function InstallEnvironment(options)
 		SetConfigInt = function(key, value) environment.configWrites[key] = value end,
 		GetViewGeometry = function() return 1920, 1080 end,
 		Echo = function(message) environment.lastLog = message end,
-		SetClipboard = function(value) environment.clipboard = value end,
+		SetClipboard = function(value)
+			if options.clipboardFails then error("simulated clipboard failure") end
+			environment.clipboard = value
+		end,
+		GetGameFrame = function() return 123 end,
+		GetGameRulesParam = function(key)
+			if key == "GameID" then return environment.gameRulesGameId end
+			return nil
+		end,
+		GetMyPlayerID = function() return options.myPlayerId or 7 end,
+		GetModOptions = function() return {} end,
+		GetPlayerList = function() return {} end,
+		GetTeamList = function() return {} end,
+		IsReplay = function() return options.isReplay == true end,
+		Utilities = {
+			Gametype = {
+				IsRaptors = function() return true end,
+				IsScavengers = function() return false end,
+			},
+		},
 	}
 	_G.VFS = {
 		Include = function(path)
@@ -109,6 +157,22 @@ local function LoadWidget(options)
 	return _G.widget, environment
 end
 
+local function testGameOverDeliveryContinuesAfterPanelClose()
+	local loadedWidget, environment = LoadWidget({autoFetch = false, luaSocket = true})
+	_G.Game.gameID = "abcdef0123456789abcdef0123456789"
+	loadedWidget:Initialize()
+	loadedWidget:GameOver({0})
+	loadedWidget:CloseWindow()
+	for _ = 1, 4 do loadedWidget:Update(0.1) end
+	T.contains(environment.sentRequest, "POST /api/v1/live-games/events HTTP/1.1")
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	T.equals(environment.lastEncoded.outcome, "decided")
+	T.equals(environment.lastEncoded.player_names, nil)
+	loadedWidget:GameOver({1})
+	T.equals(environment.socketCreates, 1, "duplicate GameOver scheduled another request")
+	loadedWidget:Shutdown()
+end
+
 local function AttributeEvent(attribute, value)
 	return {current_element = {GetAttribute = function(_, requested)
 		if requested == attribute then return value end
@@ -151,6 +215,7 @@ end
 
 local function testScheduledAndManualFetchUseTheDisabledGate()
 	local loadedWidget, environment = LoadWidget({autoFetch = false})
+	_G.Game.gameID = "abcdef0123456789abcdef0123456789"
 	loadedWidget:Initialize()
 	local api = assert(_G.WG.PveStatsRml)
 	local ok = api.ScheduleFetch(2)
@@ -171,8 +236,40 @@ local function testScheduledAndManualFetchUseTheDisabledGate()
 	loadedWidget:Shutdown()
 end
 
+local function testCopyFeedbackUsesNonLayoutTooltipState()
+	local loadedWidget, environment = LoadWidget({autoFetch = false})
+	loadedWidget:Initialize()
+	local api = assert(_G.WG.PveStatsRml)
+
+	loadedWidget:CopyDiagnostics()
+	T.equals(environment.clipboard, "PvE Stats diagnostics")
+	T.equals(environment.model.diagnosticsCopyTooltipText, "PvE Stats diagnostics copied to clipboard.")
+	loadedWidget:ResetCopyFeedback(AttributeEvent("data-copy-target", "diagnostics"))
+	T.equals(environment.model.diagnosticsCopyTooltipText, "Copy diagnostics to clipboard.")
+
+	local view = api.GetViewModel()
+	view.hasUpdate = true
+	view.updateHelpText = "Update available. Click to copy."
+	loadedWidget:CopyUpdateLink()
+	T.contains(environment.clipboard, "discord.com/channels/")
+	T.equals(environment.model.updateTooltipText, "Widget installation link copied to clipboard.")
+	loadedWidget:ResetCopyFeedback(AttributeEvent("data-copy-target", "update"))
+	T.equals(environment.model.updateTooltipText, view.updateHelpText)
+	loadedWidget:Shutdown()
+
+	loadedWidget, environment = LoadWidget({autoFetch = false, clipboardFails = true})
+	loadedWidget:Initialize()
+	loadedWidget:CopyDiagnostics()
+	T.equals(
+		environment.model.diagnosticsCopyTooltipText,
+		"Clipboard unavailable. Diagnostics remain visible in the expanded panel."
+	)
+	loadedWidget:Shutdown()
+end
+
 local function testInitialFetchAndShutdownCancellation()
 	local loadedWidget, environment = LoadWidget({autoFetch = true})
+	_G.Game.gameID = "abcdef0123456789abcdef0123456789"
 	loadedWidget:Initialize()
 	local api = assert(_G.WG.PveStatsRml)
 	T.truthy(api.GetLoadingState().active)
@@ -184,6 +281,98 @@ local function testInitialFetchAndShutdownCancellation()
 	loadedWidget:Shutdown()
 	loadedWidget:Update(100)
 	T.equals(environment.socketCreates, 0)
+end
+
+local function CompleteRequest(loadedWidget)
+	loadedWidget:Update(0)
+	loadedWidget:Update(0)
+end
+
+local function testGameIdCallbackFeedsTheScheduledRequest()
+	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	loadedWidget:Update(0.6)
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 1)
+	loadedWidget:Shutdown()
+end
+
+local function testAutoFetchSendsImmediatelyThenPollsForGameIdRefresh()
+	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	loadedWidget:Update(0.6)
+	T.equals(environment.lastEncoded.game_id, nil)
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 1)
+	environment.gameRulesGameId = "ABCDEF0123456789ABCDEF0123456789"
+	loadedWidget:Update(1)
+	T.equals(environment.socketCreates, 1, "ID refresh ignored its client jitter")
+	loadedWidget:Update(3)
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	CompleteRequest(loadedWidget)
+	loadedWidget:Update(10)
+	T.equals(environment.socketCreates, 2)
+	loadedWidget:Shutdown()
+end
+
+local function testReplayFetchDoesNotWaitForGameId()
+	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true, isReplay = true})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	loadedWidget:Update(0.6)
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	CompleteRequest(loadedWidget)
+	loadedWidget:Update(10)
+	T.equals(environment.socketCreates, 1)
+	T.equals(environment.lastEncoded.game_id, nil)
+	loadedWidget:Shutdown()
+end
+
+local function testGameIdDuringRetryWaitRefreshesAfterRetrySettles()
+	local loadedWidget, environment = LoadWidget({
+		autoFetch = true,
+		luaSocket = true,
+		retryFirst = true,
+	})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	loadedWidget:Update(0.6)
+	loadedWidget:Update(0)
+	loadedWidget:Update(0)
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	loadedWidget:Update(2)
+	CompleteRequest(loadedWidget)
+	loadedWidget:Update(3)
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 3)
+	loadedWidget:Shutdown()
+end
+
+local function testManualFetchWithoutGameIdGetsOneJitteredRefresh()
+	local loadedWidget, environment = LoadWidget({autoFetch = false, luaSocket = true})
+	_G.Game.gameID = nil
+	loadedWidget:Initialize()
+	local api = assert(_G.WG.PveStatsRml)
+	local requested, err = api.FetchStats()
+	T.equals(requested, true)
+	T.equals(err, nil)
+	loadedWidget:Update(0)
+	T.equals(environment.lastEncoded.game_id, nil)
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 1)
+	loadedWidget:GameID("ABCDEF0123456789ABCDEF0123456789")
+	loadedWidget:Update(0)
+	T.equals(environment.socketCreates, 1, "ID refresh ignored its client jitter")
+	loadedWidget:Update(3)
+	T.equals(environment.lastEncoded.game_id, "abcdef0123456789abcdef0123456789")
+	CompleteRequest(loadedWidget)
+	T.equals(environment.socketCreates, 2)
+	loadedWidget:Shutdown()
 end
 
 local function testInitializationFailureUnwindsResources()
@@ -225,8 +414,15 @@ local function testEngineGlobalsStayAtTheCompositionBoundary()
 end
 
 testInitializationAndPublicApi()
+testGameOverDeliveryContinuesAfterPanelClose()
 testScheduledAndManualFetchUseTheDisabledGate()
+testCopyFeedbackUsesNonLayoutTooltipState()
 testInitialFetchAndShutdownCancellation()
+testGameIdCallbackFeedsTheScheduledRequest()
+testAutoFetchSendsImmediatelyThenPollsForGameIdRefresh()
+testReplayFetchDoesNotWaitForGameId()
+testGameIdDuringRetryWaitRefreshesAfterRetrySettles()
+testManualFetchWithoutGameIdGetsOneJitteredRefresh()
 testInitializationFailureUnwindsResources()
 testEngineGlobalsStayAtTheCompositionBoundary()
 
