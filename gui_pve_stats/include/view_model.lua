@@ -69,6 +69,8 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 			winsLabelText = "Win Chance",
 			matchText = "-",
 			matchHelpText = "The matched lobby setting supplies setting-specific statistics and displayed differences. Match is separate from Win Chance and is not a confidence score.",
+			bestEffortText = "",
+			isBestEffort = false,
 			sourceWindowText = "-",
 			errorText = "",
 			noticeText = "",
@@ -164,6 +166,23 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 			view.matchHelpText = topMatch and tostring(topMatch.match_method or "") == "raw_fallback"
 				and "Raw fallback compares available lobby fields for the setting-specific statistics and differences shown below. The overlap is not model confidence and does not determine whether either setup is harder. Match selection is separate from Win Chance."
 				or "Similarity summarizes the selected comparison used for the setting-specific statistics and differences shown below. A score of 1.000 is the closest possible match; it is not confidence and does not say which setup is harder. Match selection is separate from Win Chance."
+		end
+		-- A lobby option this server has not catalogued yet prevents an exact
+		-- match on its own. Without saying so, the panel looks simply broken:
+		-- the fields go quiet with no visible reason. Older servers omit
+		-- `degradation`, so absence must stay silent rather than assume.
+		local degradation = response.degradation
+		if type(degradation) == "table" and tostring(degradation.reason or "") == "unknown_modoptions" then
+			local unknownCount = tonumber(degradation.unknown_setting_count) or 0
+			local optionWord = unknownCount == 1 and "option" or "options"
+			view.isBestEffort = true
+			view.bestEffortText = "This lobby uses "
+				.. (unknownCount > 0 and (tostring(math.floor(unknownCount)) .. " " .. optionWord) or "options")
+				.. " this server has not catalogued yet, so an exact match cannot be confirmed. Values shown are best-effort estimates; see Diag for details."
+			view.matchHelpText = (view.matchHelpText and (view.matchHelpText .. " ") or "") .. view.bestEffortText
+		else
+			view.isBestEffort = false
+			view.bestEffortText = ""
 		end
 		view.sourceWindowText = SourceWindowText(response, options)
 		view.hasSourceWindow = view.sourceWindowText ~= "-"

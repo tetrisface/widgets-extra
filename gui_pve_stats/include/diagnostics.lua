@@ -161,13 +161,36 @@ function DiagnosticsFactory.New(Display)
 		evidence.raw_overlap = RawOverlapText(response, topMatch)
 		local completeness = response and response.request_completeness
 		if type(completeness) == "table" then
-			evidence.request_fields = table.concat({
+			local fields = {
 				"provided " .. tostring(completeness.provided_hash_columns or 0),
 				"derived " .. tostring(#(completeness.derived_hash_column_names or {})),
 				"defaulted " .. tostring(completeness.defaulted_hash_columns or 0),
 				"missing " .. tostring(completeness.missing_hash_columns or 0),
 				"total " .. tostring(completeness.total_hash_columns or 0),
-			}, "; ")
+			}
+			-- Surfacing this count is what makes an otherwise baffling result
+			-- ("100% overlap" yet no exact match) explainable at a glance.
+			local unknown = tonumber(completeness.unknown_setting_count) or 0
+			if unknown > 0 then fields[#fields + 1] = "unknown " .. tostring(math.floor(unknown)) end
+			evidence.request_fields = table.concat(fields, "; ")
+		end
+		-- Older servers omit these; absence must read as "nothing to report".
+		local degradation = response and response.degradation
+		if type(degradation) == "table" then
+			local names = degradation.unknown_setting_names
+			if type(names) ~= "table" then
+				names = type(completeness) == "table" and completeness.unknown_setting_names or nil
+			end
+			if type(names) == "table" and #names > 0 then
+				local shown = {}
+				for index = 1, math.min(#names, 8) do shown[index] = tostring(names[index]) end
+				local text = table.concat(shown, ", ")
+				local total = tonumber(degradation.unknown_setting_count) or #names
+				if total > #shown then
+					text = text .. " (+" .. tostring(math.floor(total - #shown)) .. " more)"
+				end
+				evidence.unknown_settings = text
+			end
 		end
 		local transport = options and options.transportEvidence
 		if type(transport) == "table" then
@@ -194,6 +217,7 @@ function DiagnosticsFactory.New(Display)
 		AddRow(rows, "Match", evidence.match_summary)
 		AddRow(rows, "Raw overlap", evidence.raw_overlap)
 		AddRow(rows, "Request fields", evidence.request_fields)
+		AddRow(rows, "Uncatalogued", evidence.unknown_settings)
 		local http = {}
 		if evidence.http_status then http[#http + 1] = tostring(evidence.http_status) end
 		if evidence.attempt then http[#http + 1] = "attempt " .. tostring(evidence.attempt) end

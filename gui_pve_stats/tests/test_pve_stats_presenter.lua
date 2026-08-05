@@ -283,8 +283,51 @@ local function testRmlOwnsDynamicMarkup()
 	T.notContains(entrypoint, "playersRml")
 end
 
+local function testUncataloguedOptionsAreExplainedNotSilent()
+	-- A modoption BAR added after the catalog was pinned. The panel must say so
+	-- instead of just going quiet, which is what made this hard to diagnose.
+	local degraded = {}
+	for key, value in pairs(response) do degraded[key] = value end
+	degraded.request_completeness = {
+		provided_hash_columns = 142,
+		defaulted_hash_columns = 0,
+		missing_hash_columns = 0,
+		unknown_setting_count = 2,
+		total_hash_columns = 145,
+		derived_hash_column_names = {"Player Handicap"},
+		missing_hash_column_names = {},
+		unknown_setting_names = {"future_option_a", "future_option_b"},
+	}
+	degraded.degradation = {
+		reason = "unknown_modoptions",
+		effects = {"exact_match_suppressed"},
+		unknown_setting_names = {"future_option_a", "future_option_b"},
+		unknown_setting_count = 2,
+	}
+
+	local view = ViewModel.Build(degraded, nil, request, nil, options)
+	T.truthy(view.isBestEffort, "degraded response must be marked best-effort")
+	T.contains(view.bestEffortText, "2 options")
+	T.contains(view.matchHelpText, "best-effort")
+
+	local evidence = Diagnostics.Evidence(degraded, options)
+	T.contains(evidence.request_fields, "unknown 2")
+	T.contains(evidence.unknown_settings, "future_option_a")
+	T.contains(evidence.unknown_settings, "future_option_b")
+
+	-- An older server omits both fields; that must read as "nothing to report"
+	-- rather than producing a bogus warning.
+	local silent = {}
+	for key, value in pairs(response) do silent[key] = value end
+	local silentView = ViewModel.Build(silent, nil, request, nil, options)
+	T.falsy(silentView.isBestEffort, "responses without degradation must not be marked")
+	T.equals(silentView.bestEffortText, "")
+	T.equals(Diagnostics.Evidence(silent, options).unknown_settings, nil)
+end
+
 testStructuredViewModel()
 testDataModelRootSchemaIsStable()
+testUncataloguedOptionsAreExplainedNotSilent()
 testDiagnosticsUseOneNarrowEvidenceContract()
 testErrorsAndFreshnessArePresentationState()
 testFeatureTabsSortingAndHelpMatchPresentation()

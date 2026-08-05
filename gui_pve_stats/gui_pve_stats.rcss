@@ -178,6 +178,13 @@ div {
 	color: #66FF99;
 }
 
+/* The server could not confirm an exact match because the lobby carries
+   modoptions it has not catalogued. Muted rather than alarming: the numbers are
+   still useful, they are just best-effort. Hover text explains why. */
+.pve-stats-value.best-effort {
+	color: #E6C77A;
+}
+
 .pve-stats-source {
 	display: flex;
 	align-items: center;
