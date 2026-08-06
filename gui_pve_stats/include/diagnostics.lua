@@ -197,7 +197,7 @@ function DiagnosticsFactory.New(Display)
 			local unsupported = degradation.unsupported_setting_names
 			if type(unsupported) == "table" and #unsupported > 0 then
 				local shown = {}
-				for index = 1, math.min(#unsupported, 8) do shown[index] = tostring(unsupported[index]) end
+				for index = 1, math.min(#unsupported, 8) do shown[index] = Display.UnsupportedSettingLabel(unsupported[index]) end
 				local text = table.concat(shown, ", ")
 				if #unsupported > #shown then
 					text = text .. " (+" .. tostring(#unsupported - #shown) .. " more)"

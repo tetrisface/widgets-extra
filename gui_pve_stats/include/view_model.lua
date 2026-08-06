@@ -186,15 +186,38 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 			-- them, so the model has no weight for them and the estimate is
 			-- computed as if they were at their default. Saying so is the whole
 			-- point: the number is usable, it just cannot see these settings.
+			-- Two of the names the server can send are not options at all, and
+			-- counting a whole tweak payload as "1 option" both understates it
+			-- and names something the player cannot go and change.
 			local names = degradation.unsupported_setting_names
-			local count = type(names) == "table" and #names or 0
-			local optionWord = count == 1 and "option" or "options"
+			local optionCount, unseenTweaks, unseenSetup = 0, false, false
+			if type(names) == "table" then
+				for index = 1, #names do
+					local name = tostring(names[index])
+					if name == Display.UNSEEN_TWEAK_PROFILE then
+						unseenTweaks = true
+					elseif name == Display.UNSEEN_DEFAULT_IDENTITY then
+						unseenSetup = true
+					else
+						optionCount = optionCount + 1
+					end
+				end
+			end
+			local clauses = {}
+			if optionCount > 0 then
+				clauses[#clauses + 1] = "no recorded games have changed "
+					.. tostring(optionCount)
+					.. (optionCount == 1 and " option" or " options")
+					.. " this lobby uses"
+			end
+			if unseenTweaks then clauses[#clauses + 1] = "no recorded game used this lobby's tweak files" end
+			if unseenSetup then clauses[#clauses + 1] = "no recorded game used this exact setup" end
+			if #clauses == 0 then clauses[1] = "no recorded games cover some of what this lobby uses" end
+			local summary = table.concat(clauses, ", and ")
 			view.isBestEffort = true
-			view.bestEffortText = "No recorded games have changed "
-				.. (count > 0 and (tostring(count) .. " " .. optionWord .. " this lobby uses") or "some options this lobby uses")
-				.. ", so the estimate cannot account for "
-				.. (count == 1 and "it" or "them")
-				.. ". Values shown are best-effort estimates; see Diag for details."
+			view.bestEffortText = string.upper(string.sub(summary, 1, 1))
+				.. string.sub(summary, 2)
+				.. ". Values shown are best-effort estimates rather than measured results; see Diag for details."
 			view.matchHelpText = (view.matchHelpText and (view.matchHelpText .. " ") or "") .. view.bestEffortText
 		else
 			view.isBestEffort = false

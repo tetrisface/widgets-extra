@@ -370,9 +370,49 @@ local function testUncataloguedOptionsAreExplainedNotSilent()
 	T.equals(Diagnostics.Evidence(silent, options).unknown_settings, nil)
 end
 
+local function testUnsupportedEvidenceNamesWhatThePlayerCanRecognise()
+	-- The server discloses what the model has no trained evidence for. Two of
+	-- the names it can send are not lobby options: a whole tweak payload, and
+	-- an exact setup no game used. Rendering either as an option key put a raw
+	-- `__sentinel__` in front of the player and counted a tweak payload as one
+	-- option, which reads as a broken setting rather than as thin evidence.
+	local degraded = {}
+	for key, value in pairs(response) do degraded[key] = value end
+	degraded.degradation = {
+		reason = "unsupported_modoptions",
+		effects = {"difficulty_estimate_extrapolated"},
+		unsupported_setting_names = {"skyshift", "__unseen_tweak_profile__"},
+	}
+
+	local view = ViewModel.Build(degraded, nil, request, nil, options)
+	T.truthy(view.isBestEffort, "unsupported evidence must be marked best-effort")
+	T.contains(view.bestEffortText, "1 option")
+	T.contains(view.bestEffortText, "tweak files")
+	T.notContains(view.bestEffortText, "__unseen")
+	T.notContains(view.bestEffortText, "2 options")
+
+	local evidence = Diagnostics.Evidence(degraded, options)
+	T.contains(evidence.unsupported_settings, "skyshift")
+	T.contains(evidence.unsupported_settings, "this lobby's tweak files")
+	T.notContains(evidence.unsupported_settings, "__unseen")
+
+	-- Tweaks alone must not be described as an option count at all.
+	local tweaksOnly = {}
+	for key, value in pairs(response) do tweaksOnly[key] = value end
+	tweaksOnly.degradation = {
+		reason = "unsupported_modoptions",
+		effects = {"difficulty_estimate_extrapolated"},
+		unsupported_setting_names = {"__unseen_tweak_profile__"},
+	}
+	local tweaksView = ViewModel.Build(tweaksOnly, nil, request, nil, options)
+	T.contains(tweaksView.bestEffortText, "tweak files")
+	T.notContains(tweaksView.bestEffortText, "option")
+end
+
 testStructuredViewModel()
 testDataModelRootSchemaIsStable()
 testUncataloguedOptionsAreExplainedNotSilent()
+testUnsupportedEvidenceNamesWhatThePlayerCanRecognise()
 testDiagnosticsUseOneNarrowEvidenceContract()
 testErrorsAndFreshnessArePresentationState()
 testFeatureTabsSortingAndHelpMatchPresentation()

@@ -191,4 +191,25 @@ function Display.AgeText(ageSeconds)
 	return table.concat(parts, " ") .. " ago"
 end
 
+-- Names the API can return in `degradation.unsupported_setting_names` that are
+-- not lobby options. The player did not choose either of them, so rendering
+-- them like an option key -- or counting them as one -- reads as a setting the
+-- lobby got wrong rather than as the shape of the evidence behind the estimate.
+Display.UNSEEN_DEFAULT_IDENTITY = "__unseen_default_identity__"
+Display.UNSEEN_TWEAK_PROFILE = "__unseen_tweak_profile__"
+
+local UNSUPPORTED_SETTING_LABELS = {
+	[Display.UNSEEN_DEFAULT_IDENTITY] = "this exact setup",
+	[Display.UNSEEN_TWEAK_PROFILE] = "this lobby's tweak files",
+}
+
+function Display.UnsupportedSettingLabel(name)
+	local key = tostring(name or "")
+	return UNSUPPORTED_SETTING_LABELS[key] or key
+end
+
+function Display.IsUnsupportedSettingSentinel(name)
+	return UNSUPPORTED_SETTING_LABELS[tostring(name or "")] ~= nil
+end
+
 return Display
