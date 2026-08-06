@@ -191,6 +191,19 @@ function DiagnosticsFactory.New(Display)
 				end
 				evidence.unknown_settings = text
 			end
+			-- Catalogued, but never observed away from their default, so the
+			-- model carries no weight for them. Naming them is what separates a
+			-- labelled best-effort number from a silently wrong one.
+			local unsupported = degradation.unsupported_setting_names
+			if type(unsupported) == "table" and #unsupported > 0 then
+				local shown = {}
+				for index = 1, math.min(#unsupported, 8) do shown[index] = tostring(unsupported[index]) end
+				local text = table.concat(shown, ", ")
+				if #unsupported > #shown then
+					text = text .. " (+" .. tostring(#unsupported - #shown) .. " more)"
+				end
+				evidence.unsupported_settings = text
+			end
 		end
 		local transport = options and options.transportEvidence
 		if type(transport) == "table" then
@@ -219,6 +232,7 @@ function DiagnosticsFactory.New(Display)
 		AddRow(rows, "Raw overlap", evidence.raw_overlap)
 		AddRow(rows, "Request fields", evidence.request_fields)
 		AddRow(rows, "Uncatalogued", evidence.unknown_settings)
+		AddRow(rows, "No evidence for", evidence.unsupported_settings)
 		local http = {}
 		if evidence.http_status then http[#http + 1] = tostring(evidence.http_status) end
 		if evidence.attempt then http[#http + 1] = "attempt " .. tostring(evidence.attempt) end

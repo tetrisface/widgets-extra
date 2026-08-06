@@ -181,6 +181,21 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 				.. (unknownCount > 0 and (tostring(math.floor(unknownCount)) .. " " .. optionWord) or "options")
 				.. " this server has not catalogued yet, so an exact match cannot be confirmed. Values shown are best-effort estimates; see Diag for details."
 			view.matchHelpText = (view.matchHelpText and (view.matchHelpText .. " ") or "") .. view.bestEffortText
+		elseif type(degradation) == "table" and tostring(degradation.reason or "") == "unsupported_modoptions" then
+			-- These options are catalogued, but no recorded game ever changed
+			-- them, so the model has no weight for them and the estimate is
+			-- computed as if they were at their default. Saying so is the whole
+			-- point: the number is usable, it just cannot see these settings.
+			local names = degradation.unsupported_setting_names
+			local count = type(names) == "table" and #names or 0
+			local optionWord = count == 1 and "option" or "options"
+			view.isBestEffort = true
+			view.bestEffortText = "No recorded games have changed "
+				.. (count > 0 and (tostring(count) .. " " .. optionWord .. " this lobby uses") or "some options this lobby uses")
+				.. ", so the estimate cannot account for "
+				.. (count == 1 and "it" or "them")
+				.. ". Values shown are best-effort estimates; see Diag for details."
+			view.matchHelpText = (view.matchHelpText and (view.matchHelpText .. " ") or "") .. view.bestEffortText
 		else
 			view.isBestEffort = false
 			view.bestEffortText = ""
