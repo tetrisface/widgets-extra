@@ -25,7 +25,10 @@ local request = T.request({
 })
 
 local response = {
-	client_version = 10,
+	-- Expresses "the server advertises a newer widget" rather than pinning a
+	-- number, so bumping CLIENT_VERSION does not silently stop exercising the
+	-- update notice.
+	client_version = ViewModel.CLIENT_VERSION + 1,
 	match_status = "closest",
 	setting_hash = "query-hash-that-is-long",
 	difficulty_estimate = {

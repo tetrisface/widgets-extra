@@ -1,6 +1,11 @@
 local ViewModelFactory = {}
 
-local CLIENT_VERSION = 9
+-- The widget's own identity, and the only place it is defined. The server's
+-- LATEST_CLIENT_VERSION is a separate claim -- "a newer widget exists and can be
+-- obtained" -- so it must never be raised above this until a build carrying this
+-- number has actually been published, or every player is told to fetch a version
+-- that does not exist.
+local CLIENT_VERSION = 10
 
 local function Merge(target, source)
 	for key, value in pairs(source or {}) do target[key] = value end
