@@ -506,8 +506,8 @@ div {
 
 .table-header {
 	display: flex;
-	align-items: center;
-	height: 14dp;
+	align-items: flex-end;
+	min-height: 14dp;
 	padding: 1dp 0;
 	border-bottom-width: 1dp;
 	border-bottom-color: #262E38;
@@ -528,6 +528,12 @@ div {
 	flex-shrink: 0;
 	text-align: right;
 	padding: 0 4dp;
+}
+
+.pve-stats-table-wide .pve-stats-th-stat {
+	font-size: 0.62em;
+	width: 50dp;
+	padding: 0 2dp;
 }
 
 .pve-stats-sortable {
@@ -604,6 +610,12 @@ div {
 	flex-shrink: 0;
 	text-align: right;
 	padding: 0 4dp;
+}
+
+.pve-stats-table-wide .pve-stats-player-stat {
+	font-size: 0.62em;
+	width: 50dp;
+	padding: 0 2dp;
 }
 
 .pve-stats-tooltip-anchor {

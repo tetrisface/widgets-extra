@@ -642,7 +642,10 @@ end
 
 function widget:SortPlayerColumn(event)
 	local column = tonumber(EventAttribute(event, "data-column"))
-	if not column or column < 0 or column > 3 then return end
+	-- Six is the widest any tab declares. PlayerStats.Build falls back to the
+	-- tab's default when a narrower tab inherits a column it does not have, so
+	-- this only has to reject values no header could ever emit.
+	if not column or column < 0 or column > 6 then return end
 	if state.playerSortColumn == column then
 		state.playerSortDescending = not state.playerSortDescending
 	else

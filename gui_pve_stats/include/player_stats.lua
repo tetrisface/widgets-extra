@@ -72,7 +72,7 @@ local DEFINITIONS = {
 		},
 		values = function(player)
 			local participation = AccomplishmentGroup(player, "participation")
-			return player.setup_clears, player.setup_plays, participation.games_played
+			return {player.setup_clears, player.setup_plays, participation.games_played}
 		end,
 		defaultSortColumn = function() return 1 end,
 	},
@@ -85,20 +85,35 @@ local DEFINITIONS = {
 		},
 		values = function(player)
 			local participation = AccomplishmentGroup(player, "participation")
-			return participation.games_played, participation.victories, participation.distinct_maps_played
+			return {participation.games_played, participation.victories, participation.distinct_maps_played}
 		end,
 		defaultSortColumn = function() return 2 end,
 	},
+	-- "Defeated", not "killed": these count the lobby's configured enemy count
+	-- credited on a win, never per-player kill attribution. The totals cannot
+	-- tell one enormous victory from many small ones, which is what the max
+	-- columns beside them are for.
 	encounters = {
-		labels = {"Queens Killed", "Bosses Killed", "BARbarians Killed"},
+		labels = {"Queens Defeated", "Bosses Defeated", "BARbarians Defeated", "Max Queens", "Max Bosses", "Max BARbarians"},
 		help = {
 			"Total Raptor queens defeated in victories.",
 			"Total Scavenger bosses defeated in victories.",
 			"Total Barbarian AI opponents defeated in victories.",
+			"Most Raptor queens defeated in a single victory.",
+			"Most Scavenger bosses defeated in a single victory.",
+			"Most Barbarian AI opponents defeated in a single victory.",
 		},
 		values = function(player)
 			local encounters = AccomplishmentGroup(player, "encounters")
-			return encounters.raptor_queens_defeated, encounters.scavenger_bosses_defeated, encounters.barbarian_ais_defeated
+			local bests = AccomplishmentGroup(player, "personal_bests")
+			return {
+				encounters.raptor_queens_defeated,
+				encounters.scavenger_bosses_defeated,
+				encounters.barbarian_ais_defeated,
+				bests.max_queens_one_victory,
+				bests.max_bosses_one_victory,
+				bests.max_barbarian_ais_one_victory,
+			}
 		end,
 		defaultSortColumn = CurrentAiColumn,
 	},
@@ -111,7 +126,7 @@ local DEFINITIONS = {
 		},
 		values = function(player)
 			local challenges = AccomplishmentGroup(player, "challenges")
-			return challenges.challenge_20_clears, challenges.challenge_25_clears, challenges.challenge_30_clears
+			return {challenges.challenge_20_clears, challenges.challenge_25_clears, challenges.challenge_30_clears}
 		end,
 		defaultSortColumn = function() return 1 end,
 	},
@@ -124,7 +139,7 @@ local DEFINITIONS = {
 		},
 		values = function(player)
 			local mostKilled = AwardGroup(player, "most_killed")
-			return mostKilled.raptors, mostKilled.scavengers, mostKilled.barbarians
+			return {mostKilled.raptors, mostKilled.scavengers, mostKilled.barbarians}
 		end,
 		defaultSortColumn = CurrentAiColumn,
 	},
@@ -147,12 +162,16 @@ local function PlayerComesBefore(left, right)
 	return (tonumber(PlayerId(left)) or 0) < (tonumber(PlayerId(right)) or 0)
 end
 
+-- `labels` is the authoritative column count, not the values table: a player
+-- missing an accomplishment group yields nils, and `#` over a table with holes
+-- is undefined in Lua.
+local function ColumnCount(definition)
+	return #definition.labels
+end
+
 local function StatValue(player, definition, column)
-	local first, second, third = definition.values(player)
-	if column == 1 then return tonumber(first) end
-	if column == 2 then return tonumber(second) end
-	if column == 3 then return tonumber(third) end
-	return nil
+	if column < 1 or column > ColumnCount(definition) then return nil end
+	return tonumber(definition.values(player)[column])
 end
 
 local function SortPlayers(players, definition, sortColumn, descending)
@@ -244,14 +263,24 @@ function PlayerStatsFactory.New(Display)
 	end
 
 	local function DisplayRows(players, definition, request, colorLookup, showColors)
+		local columns = ColumnCount(definition)
 		local rows = {}
 		for _, player in ipairs(players) do
-			local first, second, third = definition.values(player)
+			local values = definition.values(player)
+			-- Columns beyond this tab's count render empty rather than "-", so an
+			-- unused slot reads as absent instead of as a missing value.
+			local function Cell(column)
+				if column > columns then return "" end
+				return Display.Number(values[column], 0)
+			end
 			rows[#rows + 1] = {
 				name = tostring(player.player_name or "Unknown"),
-				statOne = Display.Number(first, 0),
-				statTwo = Display.Number(second, 0),
-				statThree = Display.Number(third, 0),
+				statOne = Cell(1),
+				statTwo = Cell(2),
+				statThree = Cell(3),
+				statFour = Cell(4),
+				statFive = Cell(5),
+				statSix = Cell(6),
 				color = showColors and PlayerColor(player, colorLookup) or "#00000000",
 				hasColor = showColors,
 				isOwn = IsOwnPlayer(player, request),
@@ -265,8 +294,10 @@ function PlayerStatsFactory.New(Display)
 		local tab = DEFINITIONS[options.playerTab] and options.playerTab or "setup"
 		local definition = Definition(tab)
 		local defaultColumn = PlayerStats.DefaultSortColumn(tab, request)
+		local columns = ColumnCount(definition)
 		local sortColumn = tonumber(options.sortColumn)
-		if sortColumn == nil or sortColumn < 0 or sortColumn > 3 then sortColumn = defaultColumn end
+		-- A tab with fewer columns cannot inherit a sort from a wider one.
+		if sortColumn == nil or sortColumn < 0 or sortColumn > columns then sortColumn = defaultColumn end
 		local descending = options.sortDescending ~= false
 		local displayedPlayers = PlayersWithUnresolvedNames(response)
 		local active, spectators = SplitPlayers(displayedPlayers, request, definition, sortColumn, descending)
@@ -287,9 +318,19 @@ function PlayerStatsFactory.New(Display)
 			playerStatOneLabel = SortLabel(definition.labels[1], 1, sortColumn, descending),
 			playerStatTwoLabel = SortLabel(definition.labels[2], 2, sortColumn, descending),
 			playerStatThreeLabel = SortLabel(definition.labels[3], 3, sortColumn, descending),
+			playerStatFourLabel = SortLabel(definition.labels[4] or "", 4, sortColumn, descending),
+			playerStatFiveLabel = SortLabel(definition.labels[5] or "", 5, sortColumn, descending),
+			playerStatSixLabel = SortLabel(definition.labels[6] or "", 6, sortColumn, descending),
 			playerStatOneHelpText = definition.help[1] or "",
 			playerStatTwoHelpText = definition.help[2] or "",
 			playerStatThreeHelpText = definition.help[3] or "",
+			playerStatFourHelpText = definition.help[4] or "",
+			playerStatFiveHelpText = definition.help[5] or "",
+			playerStatSixHelpText = definition.help[6] or "",
+			-- Drives the conditional columns in the RML, so the five three-column
+			-- tabs render exactly as they did before this became variable.
+			hasExtraStatColumns = columns > 3,
+			statColumnCount = columns,
 			showSpectators = options.showSpectators == true,
 			sortColumn = sortColumn,
 			sortDescending = descending,

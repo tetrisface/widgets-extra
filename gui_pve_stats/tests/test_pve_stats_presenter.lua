@@ -54,6 +54,7 @@ local response = {
 			accomplishments = {
 				participation = {games_played = 50, victories = 30, distinct_maps_played = 12},
 				encounters = {raptor_queens_defeated = 10, scavenger_bosses_defeated = 2, barbarian_ais_defeated = 1},
+				personal_bests = {max_queens_one_victory = 7, max_bosses_one_victory = 2, max_barbarian_ais_one_victory = 1},
 				challenges = {
 					challenge_20_clears = 5,
 					challenge_25_clears = 2,
@@ -71,6 +72,9 @@ local response = {
 			setup_plays = 5,
 			accomplishments = {
 				participation = {games_played = 40, victories = 20, distinct_maps_played = 8},
+				-- No `encounters` group on purpose: a player missing one must
+				-- still render, and must not be sorted as if they had a zero.
+				personal_bests = {max_queens_one_victory = 3},
 				challenges = {challenge_20_clears = 2, challenge_25_clears = 0, challenge_30_clears = 0},
 			},
 			awards = {most_killed = {raptors = 2}},
@@ -412,10 +416,73 @@ local function testUnsupportedEvidenceNamesWhatThePlayerCanRecognise()
 	T.notContains(tweaksView.bestEffortText, "option")
 end
 
+local function testEncountersReportsWhatTheDataMeasuresAcrossSixColumns()
+	-- The totals credit the lobby's configured enemy count on a win; they are
+	-- never per-player kill attribution, so the label must not say "killed".
+	-- The maxima sit beside them because a total cannot tell one enormous
+	-- victory from many small ones.
+	local view = PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 1, sortDescending = true})
+
+	T.truthy(view.hasExtraStatColumns, "encounters must widen the table")
+	T.equals(view.statColumnCount, 6)
+	for _, label in ipairs({view.playerStatOneLabel, view.playerStatTwoLabel, view.playerStatThreeLabel}) do
+		T.notContains(label, "Killed")
+	end
+	T.contains(view.playerStatOneLabel, "Queens Defeated")
+	T.contains(view.playerStatFourLabel, "Max Queens")
+	T.contains(view.playerStatSixHelpText, "single victory")
+
+	local alice = FindPlayer(view.playerGroups, "Alice")
+	T.equals(alice.statOne, "10")
+	T.equals(alice.statFour, "7")
+	T.equals(alice.statFive, "2")
+	T.equals(alice.statSix, "1")
+end
+
+local function testNarrowTabsKeepExactlyThreeColumns()
+	-- Widening the table must not leak stray cells into the tabs that did not
+	-- ask for them, and a wide sort column must not survive the switch.
+	for _, tab in ipairs({"setup", "adventures", "milestones", "awards"}) do
+		local view = PlayerStats.Build(response, request, nil, {playerTab = tab, sortColumn = 6, sortDescending = true})
+		T.falsy(view.hasExtraStatColumns, tab .. " must not widen the table")
+		T.equals(view.statColumnCount, 3)
+		T.equals(view.playerStatFourLabel, "")
+		T.truthy(view.sortColumn <= 3, tab .. " must reject a column it does not have")
+		local alice = FindPlayer(view.playerGroups, "Alice")
+		T.equals(alice.statFour, "")
+		T.equals(alice.statSix, "")
+	end
+
+	-- "Most Killed" is BAR's award name, earned by ranking first in
+	-- fighting-unit value destroyed. That one really is about kills.
+	local awards = PlayerStats.Build(response, request, nil, {playerTab = "awards", sortColumn = 1, sortDescending = true})
+	T.contains(awards.playerStatOneLabel, "Most Killed")
+end
+
+local function testWideColumnsAreSortable()
+	-- Column 4 is one of the new maxima, so this fails outright if the widened
+	-- columns are not wired into the sort comparator.
+	local descending = PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 4, sortDescending = true})
+	T.equals(descending.sortColumn, 4)
+	T.equals(descending.playerGroups[1].players[1].name, "Alice")
+
+	local ascending = PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 4, sortDescending = false})
+	T.equals(ascending.playerGroups[1].players[1].name, "Bob")
+
+	-- Bob has no `encounters` group at all. A missing group must read as absent
+	-- rather than as zero, and must not crash the row.
+	local byTotal = PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 1, sortDescending = false})
+	T.equals(FindPlayer(byTotal.playerGroups, "Bob").statOne, "-")
+	T.equals(byTotal.playerGroups[1].players[1].name, "Alice")
+end
+
 testStructuredViewModel()
 testDataModelRootSchemaIsStable()
 testUncataloguedOptionsAreExplainedNotSilent()
 testUnsupportedEvidenceNamesWhatThePlayerCanRecognise()
+testEncountersReportsWhatTheDataMeasuresAcrossSixColumns()
+testNarrowTabsKeepExactlyThreeColumns()
+testWideColumnsAreSortable()
 testDiagnosticsUseOneNarrowEvidenceContract()
 testErrorsAndFreshnessArePresentationState()
 testFeatureTabsSortingAndHelpMatchPresentation()
