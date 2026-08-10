@@ -353,12 +353,18 @@ function PlayerStatsFactory.New(Display)
 	local function DisplayRows(players, definition, request, colorLookup, showColors)
 		local columns = ColumnCount(definition)
 		local rows = {}
-		for _, player in ipairs(players) do
+		for index, player in ipairs(players) do
 			local values = definition.values(player)
 			-- Columns beyond this tab's count render empty rather than "-", so an
 			-- unused slot reads as absent instead of as a missing value.
 			local function Cell(column)
 				if column > columns then return "" end
+				-- Zeros and absent values both blank so the nonzero results
+				-- carry the table. Sorting still ranks a genuine zero above an
+				-- absent value, so the order keeps the distinction the display
+				-- gives up.
+				local value = tonumber(values[column])
+				if value == nil or value == 0 then return "" end
 				return Display.Number(values[column], 0)
 			end
 			rows[#rows + 1] = {
@@ -372,6 +378,9 @@ function PlayerStatsFactory.New(Display)
 				color = showColors and PlayerColor(player, colorLookup) or "#00000000",
 				hasColor = showColors,
 				isOwn = IsOwnPlayer(player, request),
+				-- Alternates within each group so players and spectators both
+				-- stripe from their own first row.
+				isAlt = index % 2 == 0,
 			}
 		end
 		return rows

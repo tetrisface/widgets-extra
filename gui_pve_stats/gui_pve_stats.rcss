@@ -584,6 +584,12 @@ div {
 	background-color: #262E38E6;
 }
 
+/* Deliberately near-invisible: just enough to carry the eye across a row of
+   sparse cells. Declared before own-player so the highlight always wins. */
+.pve-stats-player-row.alt-row {
+	background-color: #FFFFFF05;
+}
+
 .pve-stats-player-row.own-player {
 	background-color: #17304799;
 }

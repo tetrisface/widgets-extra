@@ -212,6 +212,12 @@ local function testDiagnosticsUseOneNarrowEvidenceContract()
 	T.equals(evidence.unapproved_detail, nil)
 	local presentation = Diagnostics.Build(response, options)
 	T.contains(presentation.diagnosticsText, "HTTP: 200; attempt 2")
+	-- The row label supplies "Match:"; the summary must not repeat it.
+	T.contains(presentation.diagnosticsText, "Match: similar setting")
+	T.notContains(presentation.diagnosticsText, "Match: Match:")
+	-- Release identity leads the IDs row rather than holding a row of its own.
+	T.contains(presentation.diagnosticsText, "IDs: contract contract-has")
+	T.notContains(presentation.diagnosticsText, "Contract:")
 	T.contains(presentation.diagnosticsText, "request 512 B; response 2 KiB")
 	T.contains(presentation.diagnosticsText, "sent game sent-game-opaque-id")
 	T.contains(presentation.diagnosticsText, "current game game-opaque-id")
@@ -517,8 +523,8 @@ local function testSettingAchievementsEndOnTheSetupLadder()
 	T.equals(alice.statFive, "65")
 	T.equals(alice.statSix, "")
 	T.equals(FindPlayer(view.playerGroups, "Bob").statFive, "20")
-	-- No clears anywhere on the ladder reads as absent, never as zero.
-	T.equals(FindPlayer(view.playerGroups, "Spectator").statFive, "-")
+	-- No clears anywhere on the ladder blanks like every empty cell.
+	T.equals(FindPlayer(view.playerGroups, "Spectator").statFive, "")
 end
 
 local function testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
@@ -611,6 +617,25 @@ local function testServedSettingEnemyCountIsPresentedAsLobbyInfo()
 	T.falsy(PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 1, sortDescending = true}).hasSetupEncounterInfo)
 end
 
+local function testMeasuredZerosBlankWhileAbsentStaysDashed()
+	-- Three cell states, all distinct: a measured zero blanks so nonzero
+	-- results carry the table, "-" still means unknown or absent, and slots
+	-- beyond the tab's width stay empty. Collapsing zero into "-" would claim
+	-- ignorance about a value the server actually measured.
+	local view = PlayerStats.Build(response, request, nil, {playerTab = "achievements", sortColumn = 5, sortDescending = true, showSpectators = true})
+	local bob = FindPlayer(view.playerGroups, "Bob")
+	T.equals(bob.statTwo, "", "challenge_25_clears of 0 must blank")
+	T.equals(bob.statThree, "", "challenge_30_clears of 0 must blank")
+	T.equals(bob.statFive, "20", "a nonzero value still shows")
+	T.equals(FindPlayer(view.playerGroups, "Spectator").statFive, "", "absent blanks like zero; sorting still ranks them apart")
+	-- The discreet stripe alternates within each group, so spectators restart
+	-- from an unstriped first row.
+	local players = view.playerGroups[1].players
+	T.falsy(players[1].isAlt)
+	T.truthy(players[2].isAlt)
+	T.falsy(view.playerGroups[2].players[1].isAlt, "spectators restart unstriped")
+end
+
 local function testAchievementsTiesCascadeThroughLadderClearsThenBands()
 	-- Requested order: Max Here, then Setup Clears, then 30+, 25+, 20+, all
 	-- descending. Equal rungs split by clears; players with no rung at all
@@ -647,7 +672,7 @@ local function testWideColumnsAreSortable()
 	-- Bob has no `encounters` group at all. A missing group must read as absent
 	-- rather than as zero, and must not crash the row.
 	local byTotal = PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 1, sortDescending = false})
-	T.equals(FindPlayer(byTotal.playerGroups, "Bob").statOne, "-")
+	T.equals(FindPlayer(byTotal.playerGroups, "Bob").statOne, "")
 	T.equals(byTotal.playerGroups[1].players[1].name, "Alice")
 end
 
@@ -661,6 +686,7 @@ testSettingAchievementsEndOnTheSetupLadder()
 testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
 testWideColumnsAreSortable()
 testAchievementsTiesCascadeThroughLadderClearsThenBands()
+testMeasuredZerosBlankWhileAbsentStaysDashed()
 testServedSettingEnemyCountIsPresentedAsLobbyInfo()
 testDiagnosticsUseOneNarrowEvidenceContract()
 testErrorsAndFreshnessArePresentationState()

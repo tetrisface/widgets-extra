@@ -227,8 +227,9 @@ function DiagnosticsFactory.New(Display)
 
 	local function DiagnosticRows(evidence)
 		local rows = {}
-		AddRow(rows, "Contract", evidence.contract_hash)
-		AddRow(rows, "Match", evidence.match_summary)
+		-- The row label already says Match; the summary keeps its prefix for
+		-- the standalone bar, so it is stripped here rather than shown twice.
+		AddRow(rows, "Match", evidence.match_summary and (string.gsub(evidence.match_summary, "^Match: ", "", 1)))
 		AddRow(rows, "Raw overlap", evidence.raw_overlap)
 		AddRow(rows, "Request fields", evidence.request_fields)
 		AddRow(rows, "Uncatalogued", evidence.unknown_settings)
@@ -251,6 +252,10 @@ function DiagnosticsFactory.New(Display)
 		if responseSize then transfer[#transfer + 1] = "response " .. responseSize end
 		AddRow(rows, "Transfer", #transfer > 0 and table.concat(transfer, "; ") or nil)
 		local identities = {}
+		-- Release identity first, request identities after: the contract names
+		-- which prediction contract produced the numbers and only changes with
+		-- a model release, while everything following varies per request.
+		if evidence.contract_hash then identities[#identities + 1] = "contract " .. tostring(evidence.contract_hash) end
 		if evidence.trace_id then identities[#identities + 1] = "trace " .. tostring(evidence.trace_id) end
 		if evidence.request_hash then identities[#identities + 1] = "request " .. tostring(evidence.request_hash) end
 		if evidence.query_hash then identities[#identities + 1] = "query " .. tostring(evidence.query_hash) end

@@ -169,7 +169,7 @@
                     <div data-for="group : playerGroups">
                         <div class="pve-stats-group-label" data-if="group.showLabel">{{group.label}}</div>
                         <div class="pve-stats-empty" data-if="!group.hasPlayers">{{group.emptyText}}</div>
-                        <div data-for="player : group.players" class="pve-stats-player-row" data-class-own-player="player.isOwn">
+                        <div data-for="player : group.players" class="pve-stats-player-row" data-class-own-player="player.isOwn" data-class-alt-row="player.isAlt">
                             <div class="pve-stats-player-accent" data-class-pve-stats-player-accent-empty="!player.hasColor" data-style-background-color="player.color"></div>
                             <span class="pve-stats-player-name">{{player.name}}</span>
                             <span class="pve-stats-player-stat">{{player.statOne}}</span>
