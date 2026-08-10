@@ -5,20 +5,24 @@ local ViewModelFactory = {}
 -- obtained" -- so it must never be raised above this until a build carrying this
 -- number has actually been published, or every player is told to fetch a version
 -- that does not exist.
-local CLIENT_VERSION = 11
+local CLIENT_VERSION = 12
 
 local function Merge(target, source)
-	for key, value in pairs(source or {}) do target[key] = value end
+	for key, value in pairs(source or {}) do
+		target[key] = value
+	end
 	return target
 end
 
 function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
-	local ViewModel = {CLIENT_VERSION = CLIENT_VERSION}
+	local ViewModel = { CLIENT_VERSION = CLIENT_VERSION }
 
 	local function SourceWindowAgeSeconds(sourceWindow, options)
 		local nowSeconds = tonumber(options and options.sourceWindowNowSeconds)
 		local latestSeconds = Display.ParseUtcTimestamp(sourceWindow.latest_replay_time)
-		if nowSeconds and latestSeconds then return math.max(0, nowSeconds - latestSeconds) end
+		if nowSeconds and latestSeconds then
+			return math.max(0, nowSeconds - latestSeconds)
+		end
 		local ageSeconds = tonumber(sourceWindow.latest_replay_age_seconds)
 		if ageSeconds and ageSeconds >= 0 then
 			return math.max(0, ageSeconds + (tonumber(options and options.sourceWindowAgeOffsetSeconds) or 0))
@@ -28,25 +32,39 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 
 	local function SourceWindowText(response, options)
 		local sourceWindow = response and response.source_window
-		if type(sourceWindow) ~= "table" then return "-" end
+		if type(sourceWindow) ~= "table" then
+			return "-"
+		end
 		local earliest = tostring(sourceWindow.earliest_replay_time or "")
 		local freshness = Display.AgeText(SourceWindowAgeSeconds(sourceWindow, options))
 		if not freshness then
 			local days = tonumber(sourceWindow.latest_replay_age_days)
-			if days == 0 then freshness = "today"
-			elseif days == 1 then freshness = "1 day ago"
-			elseif days then freshness = tostring(math.floor(days)) .. " days ago" end
+			if days == 0 then
+				freshness = "today"
+			elseif days == 1 then
+				freshness = "1 day ago"
+			elseif days then
+				freshness = tostring(math.floor(days)) .. " days ago"
+			end
 		end
-		if earliest ~= "" and freshness then return string.sub(earliest, 1, 10) .. " - " .. freshness end
-		if type(sourceWindow.display) == "string" and sourceWindow.display ~= "" then return sourceWindow.display end
-		if earliest == "" then return "-" end
+		if earliest ~= "" and freshness then
+			return string.sub(earliest, 1, 10) .. " - " .. freshness
+		end
+		if type(sourceWindow.display) == "string" and sourceWindow.display ~= "" then
+			return sourceWindow.display
+		end
+		if earliest == "" then
+			return "-"
+		end
 		local latest = tostring(sourceWindow.latest_replay_time or "")
 		return latest ~= "" and (string.sub(earliest, 1, 10) .. " - " .. string.sub(latest, 1, 10)) or "-"
 	end
 
 	function ViewModel.SourceWindowAgeMinute(response, options)
 		local sourceWindow = response and response.source_window
-		if type(sourceWindow) ~= "table" then return nil end
+		if type(sourceWindow) ~= "table" then
+			return nil
+		end
 		local seconds = SourceWindowAgeSeconds(sourceWindow, options)
 		return seconds and math.floor(seconds / 60) or nil
 	end
@@ -55,7 +73,9 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 		local elapsed = math.max(0, tonumber(elapsedSeconds) or 0)
 		local expected = math.max(0.001, tonumber(expectedSeconds) or 0.001)
 		local normalized = elapsed / expected
-		if normalized <= 1 then return 0.90 * (1 - ((1 - normalized) ^ 2)) end
+		if normalized <= 1 then
+			return 0.90 * (1 - ((1 - normalized) ^ 2))
+		end
 		return math.min(0.92, 0.90 + 0.02 * (1 - math.exp(-(normalized - 1))))
 	end
 
@@ -109,7 +129,15 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 			diffRows = {},
 			histogramBins = {},
 		}
-		Merge(view, PlayerStats.Build(nil, nil, nil, {playerTab = "setup", sortColumn = 2, sortDescending = true}))
+		Merge(
+			view,
+			PlayerStats.Build(
+				nil,
+				nil,
+				nil,
+				{ playerTab = PlayerStats.DefaultTab(), sortColumn = 2, sortDescending = true }
+			)
+		)
 		return view
 	end
 

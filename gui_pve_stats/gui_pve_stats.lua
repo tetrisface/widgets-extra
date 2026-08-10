@@ -384,7 +384,7 @@ end
 
 local function UpdateDefaultPlayerTab(request, response)
 	if not response then return end
-	local defaultTab = PlayerStats.DefaultTab(response)
+	local defaultTab = PlayerStats.DefaultTab()
 	local contextKey = tostring(Request.SettingKey(request) or "") .. "|" .. defaultTab
 	if state.playerTabContextKey == contextKey then return end
 	state.playerTabContextKey = contextKey
@@ -634,7 +634,7 @@ end
 
 function widget:SetPlayerTab(event)
 	local tab = tostring(EventAttribute(event, "data-tab") or "")
-	if tab ~= "setup" and tab ~= "adventures" and tab ~= "encounters" and tab ~= "milestones" and tab ~= "awards" then return end
+	if tab ~= "achievements" and tab ~= "adventures" and tab ~= "encounters" and tab ~= "awards" then return end
 	state.playerTab = tab
 	ResetPlayerSort(tab, FetchSnapshot().lastRequest)
 	RefreshViewModel()

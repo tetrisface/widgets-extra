@@ -199,8 +199,14 @@ local function testInitializationAndPublicApi()
 	for _, removedSetting in ipairs({"PveStatsUrl", "PveStatsHost", "PveStatsPort", "PveStatsPath"}) do
 		T.falsy(environment.configReads[removedSetting], "read removed endpoint setting " .. removedSetting)
 	end
+	loadedWidget:SetPlayerTab(AttributeEvent("data-tab", "encounters"))
+	T.equals(api.GetViewModel().playerTab, "encounters")
+	-- A tab that no longer exists must be ignored outright rather than blanking
+	-- the table, since the RML can still be stale in a running game.
 	loadedWidget:SetPlayerTab(AttributeEvent("data-tab", "setup"))
-	T.equals(api.GetViewModel().playerTab, "setup")
+	T.equals(api.GetViewModel().playerTab, "encounters")
+	loadedWidget:SetPlayerTab(AttributeEvent("data-tab", "achievements"))
+	T.equals(api.GetViewModel().playerTab, "achievements")
 	loadedWidget:ToggleMinimized()
 	T.equals(environment.configWrites.PveStatsMinimized, 1)
 	loadedWidget:RecvLuaMsg("LobbyOverlayActive1")

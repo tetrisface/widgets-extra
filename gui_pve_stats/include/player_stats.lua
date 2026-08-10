@@ -62,19 +62,43 @@ local function CurrentAiColumn(request)
 	return 1
 end
 
+local function SetupExperience(player)
+	local value = player and player.setup_experience
+	return type(value) == "table" and value or {}
+end
+
 local DEFINITIONS = {
-	setup = {
-		labels = {"Setup Clears", "Setup Plays", "PvE Games"},
+	-- Every column here is a clear qualified by the setting it was earned on:
+	-- the first three by difficulty band, the last two by this exact setting.
+	-- Those last two are the only per-player figures in the panel scoped to the
+	-- current lobby, which is why they carry their own source marking.
+	achievements = {
+		labels = {"20+ Clears", "25+ Clears", "30+ Clears", "Setup Clears", "Defeated Here"},
 		help = {
-			"Eligible victories with this exact effective setup and encounter context. Similar settings never contribute.",
-			"Eligible games with this exact effective setup and encounter context, regardless of outcome.",
-			"All curated PvE games played in this mode.",
+			"Eligible wins at governed challenge 20 or above: modeled population win chance at most 41.2%.",
+			"Eligible wins at governed challenge 25 or above: modeled population win chance at most 26.5%.",
+			"Eligible wins at governed challenge 30 or above: modeled population win chance at most 11.8%.",
+			-- Overwritten per response by SetupSourceHelp; this is the exact-match
+			-- wording and the fallback when no response has arrived yet.
+			"Eligible victories on this exact lobby setup, at this team size and AI count. Counts only curated eligible games, so it sits below the lifetime totals on Encounters.",
+			"Enemies defeated across those victories: clears times the enemies this setup fields each game.",
 		},
 		values = function(player)
-			local participation = AccomplishmentGroup(player, "participation")
-			return {player.setup_clears, player.setup_plays, participation.games_played}
+			local challenges = AccomplishmentGroup(player, "challenges")
+			local experience = SetupExperience(player)
+			return {
+				challenges.challenge_20_clears,
+				challenges.challenge_25_clears,
+				challenges.challenge_30_clears,
+				experience.clears,
+				experience.defeated,
+			}
 		end,
-		defaultSortColumn = function() return 1 end,
+		defaultSortColumn = function() return 4 end,
+		-- First column whose scope is the served setting rather than a lifetime
+		-- total. Columns from here on get the source colouring, the asterisk and
+		-- the per-source help text.
+		setupSourceHelpColumns = 4,
 	},
 	adventures = {
 		labels = {"Games", "Victories", "Maps"},
@@ -117,19 +141,6 @@ local DEFINITIONS = {
 		end,
 		defaultSortColumn = CurrentAiColumn,
 	},
-	milestones = {
-		labels = {"20+ Clears", "25+ Clears", "30+ Clears"},
-		help = {
-			"Eligible wins at governed challenge 20 or above: modeled population win chance at most 41.2%.",
-			"Eligible wins at governed challenge 25 or above: modeled population win chance at most 26.5%.",
-			"Eligible wins at governed challenge 30 or above: modeled population win chance at most 11.8%.",
-		},
-		values = function(player)
-			local challenges = AccomplishmentGroup(player, "challenges")
-			return {challenges.challenge_20_clears, challenges.challenge_25_clears, challenges.challenge_30_clears}
-		end,
-		defaultSortColumn = function() return 1 end,
-	},
 	awards = {
 		labels = {"Raptor Most Killed", "Scav Most Killed", "BARb Most Killed"},
 		help = {
@@ -145,8 +156,43 @@ local DEFINITIONS = {
 	},
 }
 
+local DEFAULT_TAB = "achievements"
+
 local function Definition(tab)
-	return DEFINITIONS[tab] or DEFINITIONS.setup
+	return DEFINITIONS[tab] or DEFINITIONS[DEFAULT_TAB]
+end
+
+-- The source values the server publishes for the setting it actually served.
+-- Anything other than "exact" means the figures describe a neighbouring
+-- setting and must say so.
+local SETUP_SOURCE_HELP = {
+	exact = {
+		"Eligible victories on this exact lobby setup, at this team size and AI count. Counts only curated eligible games, so it sits below the lifetime totals on Encounters.",
+		"Enemies defeated across those victories: clears times the enemies this setup fields each game.",
+	},
+	similar = {
+		"Eligible victories on a SIMILAR setting matched by effect vector, not your exact lobby, at this team size and AI count. Counts only curated eligible games.",
+		"Enemies defeated across those victories, using the matched setting's own per-game enemy count.",
+	},
+	raw_fallback = {
+		"Eligible victories on the CLOSEST RAW setting match, not your exact lobby, at this team size and AI count. Counts only curated eligible games.",
+		"Enemies defeated across those victories, using the matched setting's own per-game enemy count.",
+	},
+}
+
+local function SetupExperienceContext(response)
+	local value = response and response.setup_experience_context
+	return type(value) == "table" and value or nil
+end
+
+-- Read the server's own label for what it served rather than re-deriving it
+-- from the closest-match metadata: two independent derivations of the same
+-- fact can disagree, and this one sits directly above the numbers it describes.
+local function SetupExperienceSource(response)
+	local context = SetupExperienceContext(response)
+	local source = context and tostring(context.source or "")
+	if source == nil or source == "" then return nil end
+	return source
 end
 
 local function PlayerNameForSort(player)
@@ -243,12 +289,20 @@ end
 function PlayerStatsFactory.New(Display)
 	local PlayerStats = {}
 
-	function PlayerStats.DefaultTab(response)
-		return string.lower(tostring(response and response.match_status or "")) == "exact" and "setup" or "awards"
+	-- Every match type now fills this tab, so there is nothing left to steer
+	-- away from. It used to fall through to "awards" on a non-exact match
+	-- purely because the setup columns went blank there.
+	function PlayerStats.DefaultTab()
+		return DEFAULT_TAB
 	end
 
-	function PlayerStats.HelpText(tab, column)
+	function PlayerStats.HelpText(tab, column, response)
 		local definition = Definition(tab)
+		local help = definition.setupSourceHelpColumns and SETUP_SOURCE_HELP[SetupExperienceSource(response) or "exact"]
+		local offset = definition.setupSourceHelpColumns and column - definition.setupSourceHelpColumns + 1
+		if help and offset and offset >= 1 and offset <= #help then
+			return help[offset]
+		end
 		return definition.help[column] or ""
 	end
 
@@ -291,7 +345,7 @@ function PlayerStatsFactory.New(Display)
 
 	function PlayerStats.Build(response, request, colorLookup, options)
 		options = options or {}
-		local tab = DEFINITIONS[options.playerTab] and options.playerTab or "setup"
+		local tab = DEFINITIONS[options.playerTab] and options.playerTab or DEFAULT_TAB
 		local definition = Definition(tab)
 		local defaultColumn = PlayerStats.DefaultSortColumn(tab, request)
 		local columns = ColumnCount(definition)
@@ -312,24 +366,64 @@ function PlayerStatsFactory.New(Display)
 				{label = "", showLabel = false, emptyText = "No player stats", players = DisplayRows(active, definition, request, colorLookup, true), hasPlayers = #active > 0},
 			}
 		end
+		local source = SetupExperienceSource(response)
+		-- Only the tab that actually carries served-setting columns can be
+		-- inexact, so a lifetime-only tab never inherits the marking.
+		local scopedColumn = definition.setupSourceHelpColumns
+		local scopedColumnsAreInexact = scopedColumn ~= nil and source ~= nil and source ~= "exact"
+		-- Colour must never be the sole carrier of meaning, so the mark rides
+		-- on the label too.
+		local function ScopedLabel(label, column)
+			if not scopedColumnsAreInexact or scopedColumn == nil then return label end
+			-- Bounded above by the tab's own width as well: a slot this tab does
+			-- not have renders empty, and a lone "*" would be a mark on nothing.
+			if column < scopedColumn or column > columns then return label end
+			return label .. "*"
+		end
+		local function StatLabel(column)
+			return SortLabel(ScopedLabel(definition.labels[column] or "", column), column, sortColumn, descending)
+		end
+		local caveatText = ""
+		if scopedColumnsAreInexact then
+			local matched = {}
+			for column = scopedColumn, columns do
+				matched[#matched + 1] = definition.labels[column]
+			end
+			caveatText = table.concat(matched, " and ") .. " are for the matched setting, not your exact lobby."
+		end
 		return {
 			playerTab = tab,
 			playerHeaderLabel = SortLabel("Player", 0, sortColumn, descending),
-			playerStatOneLabel = SortLabel(definition.labels[1], 1, sortColumn, descending),
-			playerStatTwoLabel = SortLabel(definition.labels[2], 2, sortColumn, descending),
-			playerStatThreeLabel = SortLabel(definition.labels[3], 3, sortColumn, descending),
-			playerStatFourLabel = SortLabel(definition.labels[4] or "", 4, sortColumn, descending),
-			playerStatFiveLabel = SortLabel(definition.labels[5] or "", 5, sortColumn, descending),
-			playerStatSixLabel = SortLabel(definition.labels[6] or "", 6, sortColumn, descending),
-			playerStatOneHelpText = definition.help[1] or "",
-			playerStatTwoHelpText = definition.help[2] or "",
-			playerStatThreeHelpText = definition.help[3] or "",
-			playerStatFourHelpText = definition.help[4] or "",
-			playerStatFiveHelpText = definition.help[5] or "",
-			playerStatSixHelpText = definition.help[6] or "",
-			-- Drives the conditional columns in the RML, so the five three-column
-			-- tabs render exactly as they did before this became variable.
-			hasExtraStatColumns = columns > 3,
+			playerStatOneLabel = StatLabel(1),
+			playerStatTwoLabel = StatLabel(2),
+			playerStatThreeLabel = StatLabel(3),
+			playerStatFourLabel = StatLabel(4),
+			playerStatFiveLabel = StatLabel(5),
+			playerStatSixLabel = StatLabel(6),
+			playerStatOneHelpText = PlayerStats.HelpText(tab, 1, response),
+			playerStatTwoHelpText = PlayerStats.HelpText(tab, 2, response),
+			playerStatThreeHelpText = PlayerStats.HelpText(tab, 3, response),
+			playerStatFourHelpText = PlayerStats.HelpText(tab, 4, response),
+			playerStatFiveHelpText = PlayerStats.HelpText(tab, 5, response),
+			playerStatSixHelpText = PlayerStats.HelpText(tab, 6, response),
+			-- Per-column rather than one "is this the wide tab" flag: the table
+			-- is now 3, 5 or 6 columns wide and only the last of those is the
+			-- old widened case.
+			hasStatColumnFour = columns >= 4,
+			hasStatColumnFive = columns >= 5,
+			hasStatColumnSix = columns >= 6,
+			-- Drops the stat columns to 50dp so they still fit. Five 90dp
+			-- columns plus the flexing name column overflow the panel, so this
+			-- has to trip at five, not six.
+			isWideStatTable = columns >= 5,
+			-- The last column's tooltip opens leftwards or it clips off the
+			-- panel edge, and which column is last is now variable.
+			tooltipAlignEndThree = columns == 3,
+			tooltipAlignEndFive = columns == 5,
+			tooltipAlignEndSix = columns == 6,
+			hasScopedStatColumns = scopedColumn ~= nil,
+			scopedColumnsAreInexact = scopedColumnsAreInexact,
+			setupCaveatText = caveatText,
 			statColumnCount = columns,
 			showSpectators = options.showSpectators == true,
 			sortColumn = sortColumn,

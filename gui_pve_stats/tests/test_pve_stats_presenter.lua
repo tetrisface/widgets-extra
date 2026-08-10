@@ -51,6 +51,7 @@ local response = {
 			player_name = "Alice",
 			setup_clears = 3,
 			setup_plays = 4,
+			setup_experience = {clears = 3, defeated = 195},
 			accomplishments = {
 				participation = {games_played = 50, victories = 30, distinct_maps_played = 12},
 				encounters = {raptor_queens_defeated = 10, scavenger_bosses_defeated = 2, barbarian_ais_defeated = 1},
@@ -70,6 +71,7 @@ local response = {
 			player_name = "Bob",
 			setup_clears = 2,
 			setup_plays = 5,
+			setup_experience = {clears = 2, defeated = 130},
 			accomplishments = {
 				participation = {games_played = 40, victories = 20, distinct_maps_played = 8},
 				-- No `encounters` group on purpose: a player missing one must
@@ -82,6 +84,11 @@ local response = {
 		{player_id = 303, player_name = "Spectator", accomplishments = {}},
 	},
 	unresolved_player_names = {"Unresolved"},
+	setup_experience_context = {
+		source = "similar",
+		setting_hash = "matched-hash-that-is-long",
+		encounter_count = 65,
+	},
 	closest_matches = {{
 		match_method = "similar",
 		similarity = 0.875,
@@ -107,7 +114,7 @@ local response = {
 }
 
 local options = {
-	playerTab = "milestones",
+	playerTab = "achievements",
 	showSpectators = true,
 	sortColumn = 1,
 	sortDescending = true,
@@ -227,9 +234,13 @@ local function testErrorsAndFreshnessArePresentationState()
 end
 
 local function testFeatureTabsSortingAndHelpMatchPresentation()
-	T.equals(PlayerStats.DefaultTab({match_status = "exact"}), "setup")
-	T.equals(PlayerStats.DefaultTab(response), "awards")
-	for _, tab in ipairs({"setup", "adventures", "encounters", "milestones", "awards"}) do
+	-- The tab is populated on every match type now, so there is nothing left to
+	-- steer away from. It used to fall through to "awards" on a non-exact match
+	-- only because the setup columns went blank there.
+	T.equals(PlayerStats.DefaultTab({match_status = "exact"}), "achievements")
+	T.equals(PlayerStats.DefaultTab(response), "achievements")
+	T.equals(PlayerStats.DefaultTab(), "achievements")
+	for _, tab in ipairs({"achievements", "adventures", "encounters", "awards"}) do
 		local model = PlayerStats.Build(response, request, nil, {
 			playerTab = tab,
 			sortColumn = PlayerStats.DefaultSortColumn(tab, request),
@@ -237,12 +248,12 @@ local function testFeatureTabsSortingAndHelpMatchPresentation()
 		})
 		T.equals(model.playerTab, tab)
 		T.truthy(model.playerStatOneLabel ~= "")
-		T.equals(model.playerStatOneHelpText, PlayerStats.HelpText(tab, 1))
-		T.equals(model.playerStatTwoHelpText, PlayerStats.HelpText(tab, 2))
-		T.equals(model.playerStatThreeHelpText, PlayerStats.HelpText(tab, 3))
+		T.equals(model.playerStatOneHelpText, PlayerStats.HelpText(tab, 1, response))
+		T.equals(model.playerStatTwoHelpText, PlayerStats.HelpText(tab, 2, response))
+		T.equals(model.playerStatThreeHelpText, PlayerStats.HelpText(tab, 3, response))
 	end
 	local withoutSpectators = PlayerStats.Build(response, request, nil, {
-		playerTab = "setup",
+		playerTab = "achievements",
 		showSpectators = false,
 		sortColumn = 0,
 		sortDescending = false,
@@ -278,12 +289,16 @@ local function testPlayerSortingIsStrictAndDirectional()
 			player_name = string.format("Player %02d", index),
 			setup_clears = index,
 			setup_plays = index,
-			accomplishments = {participation = {games_played = index}},
+			setup_experience = {clears = index, defeated = index * 65},
+			accomplishments = {
+				participation = {games_played = index},
+				challenges = {challenge_20_clears = index},
+			},
 		}
 	end
 	local sortResponse = {players = players}
 	local descending = PlayerStats.Build(sortResponse, request, nil, {
-		playerTab = "setup",
+		playerTab = "achievements",
 		sortColumn = 1,
 		sortDescending = true,
 	})
@@ -291,7 +306,7 @@ local function testPlayerSortingIsStrictAndDirectional()
 	T.equals(descending.playerGroups[1].players[40].name, "Player 01")
 
 	local ascending = PlayerStats.Build(sortResponse, request, nil, {
-		playerTab = "setup",
+		playerTab = "achievements",
 		sortColumn = 1,
 		sortDescending = false,
 	})
@@ -299,7 +314,7 @@ local function testPlayerSortingIsStrictAndDirectional()
 	T.equals(ascending.playerGroups[1].players[40].name, "Player 40")
 
 	local namesDescending = PlayerStats.Build(sortResponse, request, nil, {
-		playerTab = "setup",
+		playerTab = "achievements",
 		sortColumn = 0,
 		sortDescending = true,
 	})
@@ -423,8 +438,16 @@ local function testEncountersReportsWhatTheDataMeasuresAcrossSixColumns()
 	-- victory from many small ones.
 	local view = PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 1, sortDescending = true})
 
-	T.truthy(view.hasExtraStatColumns, "encounters must widen the table")
+	T.truthy(view.hasStatColumnSix, "encounters must render all six columns")
+	T.truthy(view.isWideStatTable, "encounters must widen the table")
+	T.truthy(view.tooltipAlignEndSix, "column six is last here, so its tooltip opens leftwards")
+	T.falsy(view.tooltipAlignEndFive)
 	T.equals(view.statColumnCount, 6)
+	-- Encounters carries no served-setting column, so it never inherits the
+	-- source marking even when the response itself is a closest match.
+	T.falsy(view.hasScopedStatColumns)
+	T.falsy(view.scopedColumnsAreInexact)
+	T.notContains(view.playerStatOneLabel, "*")
 	for _, label in ipairs({view.playerStatOneLabel, view.playerStatTwoLabel, view.playerStatThreeLabel}) do
 		T.notContains(label, "Killed")
 	end
@@ -442,9 +465,11 @@ end
 local function testNarrowTabsKeepExactlyThreeColumns()
 	-- Widening the table must not leak stray cells into the tabs that did not
 	-- ask for them, and a wide sort column must not survive the switch.
-	for _, tab in ipairs({"setup", "adventures", "milestones", "awards"}) do
+	for _, tab in ipairs({"adventures", "awards"}) do
 		local view = PlayerStats.Build(response, request, nil, {playerTab = tab, sortColumn = 6, sortDescending = true})
-		T.falsy(view.hasExtraStatColumns, tab .. " must not widen the table")
+		T.falsy(view.hasStatColumnFour, tab .. " must not render a fourth column")
+		T.falsy(view.isWideStatTable, tab .. " must not widen the table")
+		T.truthy(view.tooltipAlignEndThree, tab .. " ends at column three")
 		T.equals(view.statColumnCount, 3)
 		T.equals(view.playerStatFourLabel, "")
 		T.truthy(view.sortColumn <= 3, tab .. " must reject a column it does not have")
@@ -457,6 +482,93 @@ local function testNarrowTabsKeepExactlyThreeColumns()
 	-- fighting-unit value destroyed. That one really is about kills.
 	local awards = PlayerStats.Build(response, request, nil, {playerTab = "awards", sortColumn = 1, sortDescending = true})
 	T.contains(awards.playerStatOneLabel, "Most Killed")
+end
+
+local function testSettingAchievementsRendersFiveColumnsAndStopsThere()
+	-- Five columns is a new width: it must render column five and stop, and it
+	-- must take the narrow styling, because five 90dp columns plus the flexing
+	-- name column overflow the panel.
+	local view = PlayerStats.Build(response, request, nil, {playerTab = "achievements", sortColumn = 6, sortDescending = true})
+
+	T.equals(view.statColumnCount, 5)
+	T.truthy(view.hasStatColumnFour)
+	T.truthy(view.hasStatColumnFive)
+	T.falsy(view.hasStatColumnSix, "the sixth column must not leak into a five-column tab")
+	T.truthy(view.isWideStatTable, "five columns must take the narrow styling")
+	T.truthy(view.tooltipAlignEndFive, "column five is last here")
+	T.falsy(view.tooltipAlignEndThree)
+	T.falsy(view.tooltipAlignEndSix)
+	T.equals(view.playerStatSixLabel, "")
+	T.truthy(view.sortColumn <= 5, "a six-column sort must not survive the switch")
+
+	T.contains(view.playerStatOneLabel, "20+ Clears")
+	T.contains(view.playerStatFourLabel, "Setup Clears")
+	T.contains(view.playerStatFiveLabel, "Defeated Here")
+
+	local alice = FindPlayer(view.playerGroups, "Alice")
+	T.equals(alice.statOne, "5")
+	T.equals(alice.statFour, "3")
+	T.equals(alice.statFive, "195")
+	T.equals(alice.statSix, "")
+end
+
+local function testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
+	-- The whole disclosure rests on this: the numbers are the matched setting's,
+	-- so the columns must say so in three independent ways -- colour, an
+	-- asterisk, and the hover text -- and the caveat must name the columns it
+	-- applies to rather than the whole table.
+	local inexact = PlayerStats.Build(response, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
+
+	T.truthy(inexact.hasScopedStatColumns)
+	T.truthy(inexact.scopedColumnsAreInexact)
+	T.contains(inexact.playerStatFourLabel, "*")
+	T.contains(inexact.playerStatFiveLabel, "*")
+	-- The lifetime columns on the same tab must stay unmarked.
+	T.notContains(inexact.playerStatOneLabel, "*")
+	T.notContains(inexact.playerStatThreeLabel, "*")
+	T.contains(inexact.playerStatFourHelpText, "SIMILAR")
+	T.notContains(inexact.playerStatOneHelpText, "SIMILAR")
+	T.contains(inexact.setupCaveatText, "Setup Clears")
+	T.contains(inexact.setupCaveatText, "Defeated Here")
+	T.contains(inexact.setupCaveatText, "not your exact lobby")
+
+	-- A raw fallback says so in its own words rather than borrowing "similar".
+	local rawResponse = {}
+	for key, value in pairs(response) do rawResponse[key] = value end
+	rawResponse.setup_experience_context = {
+		source = "raw_fallback",
+		setting_hash = "matched-hash-that-is-long",
+		encounter_count = 65,
+	}
+	local rawView = PlayerStats.Build(rawResponse, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
+	T.truthy(rawView.scopedColumnsAreInexact)
+	T.contains(rawView.playerStatFourHelpText, "CLOSEST RAW")
+	T.notContains(rawView.playerStatFourHelpText, "SIMILAR")
+
+	-- An exact match carries no marking at all: no colour, no asterisk, no
+	-- caveat. Reading the server's own `source` is what keeps the label from
+	-- disagreeing with the numbers it labels.
+	local exactResponse = {}
+	for key, value in pairs(response) do exactResponse[key] = value end
+	exactResponse.setup_experience_context = {
+		source = "exact",
+		setting_hash = "query-hash-that-is-long",
+		encounter_count = 65,
+	}
+	local exactView = PlayerStats.Build(exactResponse, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
+	T.falsy(exactView.scopedColumnsAreInexact)
+	T.notContains(exactView.playerStatFourLabel, "*")
+	T.equals(exactView.setupCaveatText, "")
+	T.contains(exactView.playerStatFourHelpText, "this exact lobby setup")
+
+	-- A response that carries no context at all must not be treated as inexact
+	-- either, or every pre-upgrade server would light the panel amber.
+	local silentResponse = {}
+	for key, value in pairs(response) do silentResponse[key] = value end
+	silentResponse.setup_experience_context = nil
+	local silentView = PlayerStats.Build(silentResponse, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
+	T.falsy(silentView.scopedColumnsAreInexact)
+	T.equals(silentView.setupCaveatText, "")
 end
 
 local function testWideColumnsAreSortable()
@@ -482,6 +594,8 @@ testUncataloguedOptionsAreExplainedNotSilent()
 testUnsupportedEvidenceNamesWhatThePlayerCanRecognise()
 testEncountersReportsWhatTheDataMeasuresAcrossSixColumns()
 testNarrowTabsKeepExactlyThreeColumns()
+testSettingAchievementsRendersFiveColumnsAndStopsThere()
+testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
 testWideColumnsAreSortable()
 testDiagnosticsUseOneNarrowEvidenceContract()
 testErrorsAndFreshnessArePresentationState()

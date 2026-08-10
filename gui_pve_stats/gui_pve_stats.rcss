@@ -536,6 +536,21 @@ div {
 	padding: 0 2dp;
 }
 
+/* Same amber the summary uses for an unconfirmed match, for the same reason:
+   these columns describe a neighbouring setting, not this lobby. On the header
+   rather than the numbers, because the caveat is about what the column means,
+   not about any one player's value. The label carries a "*" as well, so the
+   colour is never the only thing saying so. */
+.pve-stats-th-stat.best-effort {
+	color: #E6C77A;
+}
+
+.pve-stats-setup-caveat {
+	color: #E6C77A;
+	font-size: 0.7em;
+	padding: 2dp 8dp 3dp 8dp;
+}
+
 .pve-stats-sortable {
 	cursor: pointer;
 }

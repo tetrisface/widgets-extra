@@ -147,22 +147,22 @@
                 </div>
             </div>
 
-            <div class="table-area pve-stats-table" data-class-pve-stats-table-wide="hasExtraStatColumns">
+            <div class="table-area pve-stats-table" data-class-pve-stats-table-wide="isWideStatTable">
                 <div class="pve-stats-tabs">
+                    <div class="pve-stats-tab" data-tab="achievements" data-class-active="playerTab == 'achievements'" onclick="widget:SetPlayerTab(event)">Setting Achievements</div>
                     <div class="pve-stats-tab" data-tab="awards" data-class-active="playerTab == 'awards'" onclick="widget:SetPlayerTab(event)">Awards</div>
                     <div class="pve-stats-tab" data-tab="encounters" data-class-active="playerTab == 'encounters'" onclick="widget:SetPlayerTab(event)">Encounters</div>
                     <div class="pve-stats-tab" data-tab="adventures" data-class-active="playerTab == 'adventures'" onclick="widget:SetPlayerTab(event)">Games &amp; Maps</div>
-                    <div class="pve-stats-tab" data-tab="milestones" data-class-active="playerTab == 'milestones'" onclick="widget:SetPlayerTab(event)">Milestones</div>
-                    <div class="pve-stats-tab" data-tab="setup" data-class-active="playerTab == 'setup'" onclick="widget:SetPlayerTab(event)">Lobby Settings</div>
                 </div>
+                <div class="pve-stats-setup-caveat" data-if="scopedColumnsAreInexact">{{setupCaveatText}}</div>
                 <div class="table-header">
                     <span class="pve-stats-th-player pve-stats-sortable" data-column="0" data-class-active-sort="sortColumn == 0" onclick="widget:SortPlayerColumn(event)">{{playerHeaderLabel}}</span>
                     <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-column="1" data-class-active-sort="sortColumn == 1" onclick="widget:SortPlayerColumn(event)">{{playerStatOneLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatOneHelpText}}</span></span>
                     <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-column="2" data-class-active-sort="sortColumn == 2" onclick="widget:SortPlayerColumn(event)">{{playerStatTwoLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatTwoHelpText}}</span></span>
-                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-column="3" data-class-active-sort="sortColumn == 3" data-class-pve-stats-tooltip-align-end="!hasExtraStatColumns" onclick="widget:SortPlayerColumn(event)">{{playerStatThreeLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatThreeHelpText}}</span></span>
-                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-if="hasExtraStatColumns" data-column="4" data-class-active-sort="sortColumn == 4" onclick="widget:SortPlayerColumn(event)">{{playerStatFourLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatFourHelpText}}</span></span>
-                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-if="hasExtraStatColumns" data-column="5" data-class-active-sort="sortColumn == 5" onclick="widget:SortPlayerColumn(event)">{{playerStatFiveLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatFiveHelpText}}</span></span>
-                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor pve-stats-tooltip-align-end" data-if="hasExtraStatColumns" data-column="6" data-class-active-sort="sortColumn == 6" onclick="widget:SortPlayerColumn(event)">{{playerStatSixLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatSixHelpText}}</span></span>
+                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-column="3" data-class-active-sort="sortColumn == 3" data-class-pve-stats-tooltip-align-end="tooltipAlignEndThree" onclick="widget:SortPlayerColumn(event)">{{playerStatThreeLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatThreeHelpText}}</span></span>
+                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-if="hasStatColumnFour" data-column="4" data-class-active-sort="sortColumn == 4" data-class-best-effort="scopedColumnsAreInexact" onclick="widget:SortPlayerColumn(event)">{{playerStatFourLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatFourHelpText}}</span></span>
+                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-if="hasStatColumnFive" data-column="5" data-class-active-sort="sortColumn == 5" data-class-best-effort="scopedColumnsAreInexact" data-class-pve-stats-tooltip-align-end="tooltipAlignEndFive" onclick="widget:SortPlayerColumn(event)">{{playerStatFiveLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatFiveHelpText}}</span></span>
+                    <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-if="hasStatColumnSix" data-column="6" data-class-active-sort="sortColumn == 6" data-class-pve-stats-tooltip-align-end="tooltipAlignEndSix" onclick="widget:SortPlayerColumn(event)">{{playerStatSixLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatSixHelpText}}</span></span>
                 </div>
                 <div id="pve-stats-players" class="pve-stats-players">
                     <div data-for="group : playerGroups">
@@ -174,9 +174,9 @@
                             <span class="pve-stats-player-stat">{{player.statOne}}</span>
                             <span class="pve-stats-player-stat">{{player.statTwo}}</span>
                             <span class="pve-stats-player-stat">{{player.statThree}}</span>
-                            <span class="pve-stats-player-stat" data-if="hasExtraStatColumns">{{player.statFour}}</span>
-                            <span class="pve-stats-player-stat" data-if="hasExtraStatColumns">{{player.statFive}}</span>
-                            <span class="pve-stats-player-stat" data-if="hasExtraStatColumns">{{player.statSix}}</span>
+                            <span class="pve-stats-player-stat" data-if="hasStatColumnFour">{{player.statFour}}</span>
+                            <span class="pve-stats-player-stat" data-if="hasStatColumnFive">{{player.statFive}}</span>
+                            <span class="pve-stats-player-stat" data-if="hasStatColumnSix">{{player.statSix}}</span>
                         </div>
                     </div>
                 </div>
