@@ -551,14 +551,6 @@ div {
 	padding: 2dp 8dp 3dp 8dp;
 }
 
-/* Lobby-level fact about the served setting, not a warning: stays in the
-   muted header blue so it never competes with the amber caveat above it. */
-.pve-stats-setup-info {
-	color: #8099B3;
-	font-size: 0.7em;
-	padding: 2dp 8dp 3dp 8dp;
-}
-
 .pve-stats-sortable {
 	cursor: pointer;
 }

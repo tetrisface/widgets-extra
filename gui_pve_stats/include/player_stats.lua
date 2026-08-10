@@ -330,12 +330,31 @@ function PlayerStatsFactory.New(Display)
 		return DEFAULT_TAB
 	end
 
-	function PlayerStats.HelpText(tab, column, response)
+	-- The per-game enemy count is constant within a setting, so "how many you
+	-- fight here per game" is a property of the served setting. It rides in the
+	-- Setup Clears tooltip rather than costing the table a line of real estate.
+	-- Never in Max Here: that column deliberately compares enemy-count versions,
+	-- so pinning one count inside it would contradict the number beside it.
+	local function EncounterInfo(response, request)
+		local context = SetupExperienceContext(response)
+		local count = context and tonumber(context.encounter_count) or nil
+		if count == nil or count <= 0 then return "" end
+		local source = SetupExperienceSource(response)
+		local subject = (source ~= nil and source ~= "exact") and "The matched setting fields " or "This setup fields "
+		return subject .. Display.Number(count, 0) .. " " .. EnemyNoun(request, count) .. " per game."
+	end
+
+	function PlayerStats.HelpText(tab, column, response, request)
 		local definition = Definition(tab)
 		local help = definition.setupSourceHelpColumns and SETUP_SOURCE_HELP[SetupExperienceSource(response) or "exact"]
 		local offset = definition.setupSourceHelpColumns and column - definition.setupSourceHelpColumns + 1
 		if help and offset and offset >= 1 and offset <= #help then
-			return help[offset]
+			local text = help[offset]
+			if offset == 1 then
+				local info = EncounterInfo(response, request)
+				if info ~= "" then text = text .. " " .. info end
+			end
+			return text
 		end
 		return definition.help[column] or ""
 	end
@@ -434,17 +453,6 @@ function PlayerStatsFactory.New(Display)
 			end
 			caveatText = table.concat(matched, " and ") .. " are for the matched setting, not your exact lobby."
 		end
-		-- The per-game enemy count is constant within a setting, so "the most
-		-- you can defeat in one game here" is a property of the served setting
-		-- rather than a per-player column. One neutral line above the table
-		-- carries it for the whole lobby.
-		local encounterInfoText = ""
-		local experienceContext = SetupExperienceContext(response)
-		local encounterCount = experienceContext and tonumber(experienceContext.encounter_count) or nil
-		if scopedColumn ~= nil and encounterCount ~= nil and encounterCount > 0 then
-			local subject = scopedColumnsAreInexact and "The matched setting fields " or "This setup fields "
-			encounterInfoText = subject .. Display.Number(encounterCount, 0) .. " " .. EnemyNoun(request, encounterCount) .. " per game."
-		end
 		return {
 			playerTab = tab,
 			playerHeaderLabel = SortLabel("Player", 0, sortColumn, descending),
@@ -454,12 +462,12 @@ function PlayerStatsFactory.New(Display)
 			playerStatFourLabel = StatLabel(4),
 			playerStatFiveLabel = StatLabel(5),
 			playerStatSixLabel = StatLabel(6),
-			playerStatOneHelpText = PlayerStats.HelpText(tab, 1, response),
-			playerStatTwoHelpText = PlayerStats.HelpText(tab, 2, response),
-			playerStatThreeHelpText = PlayerStats.HelpText(tab, 3, response),
-			playerStatFourHelpText = PlayerStats.HelpText(tab, 4, response),
-			playerStatFiveHelpText = PlayerStats.HelpText(tab, 5, response),
-			playerStatSixHelpText = PlayerStats.HelpText(tab, 6, response),
+			playerStatOneHelpText = PlayerStats.HelpText(tab, 1, response, request),
+			playerStatTwoHelpText = PlayerStats.HelpText(tab, 2, response, request),
+			playerStatThreeHelpText = PlayerStats.HelpText(tab, 3, response, request),
+			playerStatFourHelpText = PlayerStats.HelpText(tab, 4, response, request),
+			playerStatFiveHelpText = PlayerStats.HelpText(tab, 5, response, request),
+			playerStatSixHelpText = PlayerStats.HelpText(tab, 6, response, request),
 			-- Per-column rather than one "is this the wide tab" flag: the table
 			-- is now 3, 5 or 6 columns wide and only the last of those is the
 			-- old widened case.
@@ -478,8 +486,6 @@ function PlayerStatsFactory.New(Display)
 			hasScopedStatColumns = scopedColumn ~= nil,
 			scopedColumnsAreInexact = scopedColumnsAreInexact,
 			setupCaveatText = caveatText,
-			hasSetupEncounterInfo = encounterInfoText ~= "",
-			setupEncounterInfoText = encounterInfoText,
 			statColumnCount = columns,
 			showSpectators = options.showSpectators == true,
 			sortColumn = sortColumn,

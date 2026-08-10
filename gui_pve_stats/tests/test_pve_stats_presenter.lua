@@ -586,35 +586,38 @@ local function testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
 	T.equals(silentView.setupCaveatText, "")
 end
 
-local function testServedSettingEnemyCountIsPresentedAsLobbyInfo()
-	-- The per-game enemy count is constant within a setting, so "the most you
-	-- can defeat in one game here" is a fact about the served setting, not a
-	-- per-player column. It rides above the table, named per mode, and follows
-	-- the same served-setting subject as the caveat.
+local function testServedSettingEnemyCountRidesTheSetupClearsTooltip()
+	-- The per-game enemy count is constant within a setting, so it belongs to
+	-- the Setup Clears tooltip rather than a standalone line above the table.
+	-- Never in Max Here: that column compares enemy-count versions, so pinning
+	-- one count inside it would contradict the number it explains.
 	local inexact = PlayerStats.Build(response, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
-	T.truthy(inexact.hasSetupEncounterInfo)
-	T.equals(inexact.setupEncounterInfoText, "The matched setting fields 65 queens per game.")
+	T.contains(inexact.playerStatFourHelpText, "The matched setting fields 65 queens per game.")
+	T.notContains(inexact.playerStatFiveHelpText, "per game.")
+	T.falsy(inexact.hasSetupEncounterInfo)
 
 	local exactResponse = {}
 	for key, value in pairs(response) do exactResponse[key] = value end
 	exactResponse.setup_experience_context = {source = "exact", setting_hash = "query-hash-that-is-long", encounter_count = 65}
 	local exactView = PlayerStats.Build(exactResponse, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
-	T.equals(exactView.setupEncounterInfoText, "This setup fields 65 queens per game.")
+	T.contains(exactView.playerStatFourHelpText, "This setup fields 65 queens per game.")
 
 	-- Modes name their enemies differently, and one enemy must read singular.
 	local scavResponse = {}
 	for key, value in pairs(response) do scavResponse[key] = value end
 	scavResponse.setup_experience_context = {source = "exact", setting_hash = "h", encounter_count = 1}
 	local scavView = PlayerStats.Build(scavResponse, {ai_type = "Scavengers"}, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
-	T.equals(scavView.setupEncounterInfoText, "This setup fields 1 boss per game.")
+	T.contains(scavView.playerStatFourHelpText, "This setup fields 1 boss per game.")
 
-	-- A pre-upgrade server sends no context: the line must stay hidden rather
-	-- than invent a count, and lifetime tabs never carry it.
+	-- A pre-upgrade server sends no context: the tooltip must not invent a
+	-- count, and lifetime tabs never carry it.
 	local silentResponse = {}
 	for key, value in pairs(response) do silentResponse[key] = value end
 	silentResponse.setup_experience_context = nil
-	T.falsy(PlayerStats.Build(silentResponse, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true}).hasSetupEncounterInfo)
-	T.falsy(PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 1, sortDescending = true}).hasSetupEncounterInfo)
+	local silentView = PlayerStats.Build(silentResponse, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
+	T.notContains(silentView.playerStatFourHelpText, "per game.")
+	local encountersView = PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 1, sortDescending = true})
+	T.notContains(encountersView.playerStatFourHelpText, "per game.")
 end
 
 local function testMeasuredZerosBlankWhileAbsentStaysDashed()
@@ -687,7 +690,7 @@ testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
 testWideColumnsAreSortable()
 testAchievementsTiesCascadeThroughLadderClearsThenBands()
 testMeasuredZerosBlankWhileAbsentStaysDashed()
-testServedSettingEnemyCountIsPresentedAsLobbyInfo()
+testServedSettingEnemyCountRidesTheSetupClearsTooltip()
 testDiagnosticsUseOneNarrowEvidenceContract()
 testErrorsAndFreshnessArePresentationState()
 testFeatureTabsSortingAndHelpMatchPresentation()
