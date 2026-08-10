@@ -117,18 +117,21 @@ local DEFINITIONS = {
 		-- the per-source help text.
 		setupSourceHelpColumns = 4,
 	},
+	-- Victories leads: the column order is the sort order, achievement before
+	-- attendance.
 	adventures = {
-		labels = {"Games", "Victories", "Maps"},
+		labels = {"Victories", "Games", "Maps"},
 		help = {
-			"All curated PvE games played in this mode.",
 			"All curated PvE victories in this mode.",
+			"All curated PvE games played in this mode.",
 			"Distinct maps played in this mode.",
 		},
 		values = function(player)
 			local participation = AccomplishmentGroup(player, "participation")
-			return {participation.games_played, participation.victories, participation.distinct_maps_played}
+			return {participation.victories, participation.games_played, participation.distinct_maps_played}
 		end,
-		defaultSortColumn = function() return 2 end,
+		defaultSortColumn = function() return 1 end,
+		sortCascade = {1, 2, 3},
 	},
 	-- "Defeated", not "killed": these count the lobby's configured enemy count
 	-- credited on a win, never per-player kill attribution. The totals cannot
@@ -156,7 +159,25 @@ local DEFINITIONS = {
 				bests.max_barbarian_ais_one_victory,
 			}
 		end,
-		defaultSortColumn = CurrentAiColumn,
+		-- The current mode's Max leads: totals reward grinding, the max is the
+		-- feat. Its totals column breaks ties.
+		defaultSortColumn = function(request) return CurrentAiColumn(request) + 3 end,
+		-- Cross-mode ties fall to the other maxes ordered by how rare each
+		-- mode's ceiling is among its own winners (measured 2026-08-10:
+		-- 20 bosses 2.3%, 100 queens 9.9%, 16 BARbs 12.1%), then the totals in
+		-- the same order.
+		sortCascade = function(request)
+			local total = CurrentAiColumn(request)
+			local max = total + 3
+			local cascade = {max, total}
+			for _, column in ipairs({5, 4, 6}) do
+				if column ~= max then cascade[#cascade + 1] = column end
+			end
+			for _, column in ipairs({2, 1, 3}) do
+				if column ~= total then cascade[#cascade + 1] = column end
+			end
+			return cascade
+		end,
 	},
 	awards = {
 		labels = {"Raptor Most Killed", "Scav Most Killed", "BARb Most Killed"},
@@ -170,6 +191,18 @@ local DEFINITIONS = {
 			return {mostKilled.raptors, mostKilled.scavengers, mostKilled.barbarians}
 		end,
 		defaultSortColumn = CurrentAiColumn,
+		-- Most Killed is relative to the other players in each game, so no
+		-- mode's count is intrinsically harder. Cross-mode ties fall to mode
+		-- popularity (2026-08-10: BARb 382k games, Raptors 94k, Scavengers
+		-- 43k): topping a larger population says more.
+		sortCascade = function(request)
+			local current = CurrentAiColumn(request)
+			local cascade = {current}
+			for _, column in ipairs({3, 1, 2}) do
+				if column ~= current then cascade[#cascade + 1] = column end
+			end
+			return cascade
+		end,
 	},
 }
 
@@ -250,7 +283,15 @@ local function StatOrder(left, right, definition, column, descending)
 	return leftValue < rightValue
 end
 
-local function SortPlayers(players, definition, sortColumn, descending)
+-- A cascade may depend on the lobby (current mode first), so it resolves per
+-- request the same way defaultSortColumn already does.
+local function ResolvedCascade(definition, request)
+	local cascade = definition.sortCascade
+	if type(cascade) == "function" then return cascade(request) end
+	return cascade or {}
+end
+
+local function SortPlayers(players, definition, sortColumn, descending, cascade)
 	table.sort(players, function(left, right)
 		if sortColumn == 0 then
 			if descending then return PlayerComesBefore(right, left) end
@@ -262,7 +303,7 @@ local function SortPlayers(players, definition, sortColumn, descending)
 		-- ladder rungs are split by clears and then the difficulty bands. The
 		-- clicked column stays primary; the cascade only decides what it left
 		-- undecided.
-		for _, column in ipairs(definition.sortCascade or {}) do
+		for _, column in ipairs(cascade or {}) do
 			if column ~= sortColumn then
 				order = StatOrder(left, right, definition, column, descending)
 				if order ~= nil then return order end
@@ -317,7 +358,9 @@ local function SplitPlayers(players, request, definition, sortColumn, descending
 			active[#active + 1] = player
 		end
 	end
-	return SortPlayers(active, definition, sortColumn, descending), SortPlayers(spectators, definition, sortColumn, descending)
+	local cascade = ResolvedCascade(definition, request)
+	return SortPlayers(active, definition, sortColumn, descending, cascade),
+		SortPlayers(spectators, definition, sortColumn, descending, cascade)
 end
 
 function PlayerStatsFactory.New(Display)

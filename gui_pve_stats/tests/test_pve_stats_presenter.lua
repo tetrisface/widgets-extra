@@ -468,6 +468,91 @@ local function testEncountersReportsWhatTheDataMeasuresAcrossSixColumns()
 	T.equals(alice.statSix, "1")
 end
 
+local function testModeTabsCascadeCurrentModeFirstThenEvidence()
+	-- Default sorts and tie cascades follow the lobby: the current mode's
+	-- column leads. Cross-mode ties then follow measured evidence -- ceiling
+	-- rarity for Encounters maxes, mode popularity for Awards -- rather than
+	-- column order.
+	local function CascadePlayer(id, name, values)
+		return {
+			player_id = id,
+			player_name = name,
+			accomplishments = {
+				participation = {
+					victories = values.victories or 0,
+					games_played = values.games or 0,
+					distinct_maps_played = values.maps or 0,
+				},
+				encounters = {
+					raptor_queens_defeated = values.queens or 0,
+					scavenger_bosses_defeated = values.bosses or 0,
+					barbarian_ais_defeated = values.barbs or 0,
+				},
+				personal_bests = {
+					max_queens_one_victory = values.maxQueens or 0,
+					max_bosses_one_victory = values.maxBosses or 0,
+					max_barbarian_ais_one_victory = values.maxBarbs or 0,
+				},
+			},
+			awards = {
+				most_killed = {
+					raptors = values.mkRaptors or 0,
+					scavengers = values.mkScav or 0,
+					barbarians = values.mkBarb or 0,
+				},
+			},
+		}
+	end
+	local function Names(view)
+		local names = {}
+		for _, row in ipairs(view.playerGroups[1].players) do names[#names + 1] = row.name end
+		return table.concat(names, ",")
+	end
+	local raptorsLobby = {ai_type = "Raptors"}
+
+	-- Encounters opens on the current mode's Max, not its total.
+	T.equals(PlayerStats.DefaultSortColumn("encounters", raptorsLobby), 4)
+	T.equals(PlayerStats.DefaultSortColumn("encounters", {ai_type = "Barbarian"}), 6)
+	T.equals(PlayerStats.DefaultSortColumn("encounters", {ai_type = "Scavengers"}), 5)
+
+	-- Elle breaks the Max Queens tie on the current total; Dana and Cara stay
+	-- tied through both current columns, so Max Bosses (the rarest ceiling)
+	-- decides -- Cara's bigger Max BARbs must not outrank it.
+	local encountersResponse = {
+		players = {
+			CascadePlayer(1, "Cara", {maxQueens = 10, queens = 50, maxBosses = 1, maxBarbs = 9}),
+			CascadePlayer(2, "Dana", {maxQueens = 10, queens = 50, maxBosses = 5}),
+			CascadePlayer(3, "Elle", {maxQueens = 10, queens = 60}),
+		},
+	}
+	local encountersView = PlayerStats.Build(encountersResponse, raptorsLobby, nil, {playerTab = "encounters"})
+	T.equals(encountersView.sortColumn, 4)
+	T.equals(Names(encountersView), "Elle,Dana,Cara")
+
+	-- Awards: tied on the current mode, the BARb count decides before the
+	-- Scavenger one because it is earned against the larger population.
+	local awardsResponse = {
+		players = {
+			CascadePlayer(1, "Faye", {mkRaptors = 3, mkBarb = 1, mkScav = 9}),
+			CascadePlayer(2, "Gwen", {mkRaptors = 3, mkBarb = 2}),
+		},
+	}
+	local awardsView = PlayerStats.Build(awardsResponse, raptorsLobby, nil, {playerTab = "awards"})
+	T.equals(awardsView.sortColumn, 1)
+	T.equals(Names(awardsView), "Gwen,Faye")
+
+	-- Games & Maps leads with Victories and breaks its ties on Games.
+	T.equals(PlayerStats.DefaultSortColumn("adventures", raptorsLobby), 1)
+	local adventuresResponse = {
+		players = {
+			CascadePlayer(1, "Hope", {victories = 20, games = 40}),
+			CascadePlayer(2, "Iris", {victories = 20, games = 55}),
+		},
+	}
+	local adventuresView = PlayerStats.Build(adventuresResponse, raptorsLobby, nil, {playerTab = "adventures"})
+	T.equals(Names(adventuresView), "Iris,Hope")
+end
+
 local function testNarrowTabsKeepExactlyThreeColumns()
 	-- Widening the table must not leak stray cells into the tabs that did not
 	-- ask for them, and a wide sort column must not survive the switch.
@@ -684,6 +769,7 @@ testDataModelRootSchemaIsStable()
 testUncataloguedOptionsAreExplainedNotSilent()
 testUnsupportedEvidenceNamesWhatThePlayerCanRecognise()
 testEncountersReportsWhatTheDataMeasuresAcrossSixColumns()
+testModeTabsCascadeCurrentModeFirstThenEvidence()
 testNarrowTabsKeepExactlyThreeColumns()
 testSettingAchievementsEndOnTheSetupLadder()
 testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
