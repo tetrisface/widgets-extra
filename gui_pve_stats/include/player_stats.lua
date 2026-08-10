@@ -81,7 +81,7 @@ local DEFINITIONS = {
 			-- Overwritten per response by SetupSourceHelp; this is the exact-match
 			-- wording and the fallback when no response has arrived yet.
 			"Eligible victories on this exact lobby setup, at this team size and AI count. Counts only curated eligible games, so it sits below the lifetime totals on Encounters.",
-			"Enemies defeated across those victories: clears times the enemies this setup fields each game.",
+			"Running total of enemies defeated across all the wins counted under Setup Clears, on this exact setup. Each win adds this setup's per-game enemy count: one win against 5 queens adds 5.",
 		},
 		values = function(player)
 			local challenges = AccomplishmentGroup(player, "challenges")
@@ -168,15 +168,15 @@ end
 local SETUP_SOURCE_HELP = {
 	exact = {
 		"Eligible victories on this exact lobby setup, at this team size and AI count. Counts only curated eligible games, so it sits below the lifetime totals on Encounters.",
-		"Enemies defeated across those victories: clears times the enemies this setup fields each game.",
+		"Running total of enemies defeated across all the wins counted under Setup Clears, on this exact setup. Each win adds this setup's per-game enemy count: one win against 5 queens adds 5.",
 	},
 	similar = {
 		"Eligible victories on a SIMILAR setting matched by effect vector, not your exact lobby, at this team size and AI count. Counts only curated eligible games.",
-		"Enemies defeated across those victories, using the matched setting's own per-game enemy count.",
+		"Running total of enemies defeated across all the wins counted under Setup Clears, on the SIMILAR matched setting rather than your exact lobby. Each win adds that setting's own per-game enemy count.",
 	},
 	raw_fallback = {
 		"Eligible victories on the CLOSEST RAW setting match, not your exact lobby, at this team size and AI count. Counts only curated eligible games.",
-		"Enemies defeated across those victories, using the matched setting's own per-game enemy count.",
+		"Running total of enemies defeated across all the wins counted under Setup Clears, on the CLOSEST RAW matched setting rather than your exact lobby. Each win adds that setting's own per-game enemy count.",
 	},
 }
 
