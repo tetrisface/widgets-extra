@@ -51,7 +51,7 @@ local response = {
 			player_name = "Alice",
 			setup_clears = 3,
 			setup_plays = 4,
-			setup_experience = {clears = 3, defeated = 195},
+			setup_experience = {clears = 3, defeated = 195, max_defeated = 65},
 			accomplishments = {
 				participation = {games_played = 50, victories = 30, distinct_maps_played = 12},
 				encounters = {raptor_queens_defeated = 10, scavenger_bosses_defeated = 2, barbarian_ais_defeated = 1},
@@ -71,7 +71,7 @@ local response = {
 			player_name = "Bob",
 			setup_clears = 2,
 			setup_plays = 5,
-			setup_experience = {clears = 2, defeated = 130},
+			setup_experience = {clears = 2, defeated = 130, max_defeated = 20},
 			accomplishments = {
 				participation = {games_played = 40, victories = 20, distinct_maps_played = 8},
 				-- No `encounters` group on purpose: a player missing one must
@@ -484,32 +484,41 @@ local function testNarrowTabsKeepExactlyThreeColumns()
 	T.contains(awards.playerStatOneLabel, "Most Killed")
 end
 
-local function testSettingAchievementsRendersFiveColumnsAndStopsThere()
-	-- Five columns is a new width: it must render column five and stop, and it
-	-- must take the narrow styling, because five 90dp columns plus the flexing
-	-- name column overflow the panel.
-	local view = PlayerStats.Build(response, request, nil, {playerTab = "achievements", sortColumn = 6, sortDescending = true})
+local function testSettingAchievementsEndOnTheSetupLadder()
+	-- Five columns: three lifetime difficulty bands, then the served-setting
+	-- pair. Max Here is each player's rung on this setup's enemy-count ladder,
+	-- so Bob showing 20 in a 65-enemy lobby is the interesting case. The
+	-- cumulative "Defeated Here" was dropped deliberately: it was a linear
+	-- rescale of Setup Clears, and the info line above the table already names
+	-- the multiplier.
+	local view = PlayerStats.Build(response, request, nil, {playerTab = "achievements", sortColumn = 5, sortDescending = true, showSpectators = true})
 
 	T.equals(view.statColumnCount, 5)
 	T.truthy(view.hasStatColumnFour)
 	T.truthy(view.hasStatColumnFive)
 	T.falsy(view.hasStatColumnSix, "the sixth column must not leak into a five-column tab")
 	T.truthy(view.isWideStatTable, "five columns must take the narrow styling")
-	T.truthy(view.tooltipAlignEndFive, "column five is last here")
+	T.truthy(view.tooltipAlignEndFive, "column five is last, so its tooltip opens leftwards")
 	T.falsy(view.tooltipAlignEndThree)
 	T.falsy(view.tooltipAlignEndSix)
-	T.equals(view.playerStatSixLabel, "")
-	T.truthy(view.sortColumn <= 5, "a six-column sort must not survive the switch")
+	T.equals(view.sortColumn, 5, "the ladder column is sortable")
+	T.truthy(PlayerStats.Build(response, request, nil, {playerTab = "achievements", sortColumn = 6, sortDescending = true}).sortColumn <= 5,
+		"a six-column sort must not survive into this tab")
 
 	T.contains(view.playerStatOneLabel, "20+ Clears")
 	T.contains(view.playerStatFourLabel, "Setup Clears")
-	T.contains(view.playerStatFiveLabel, "Defeated Here")
+	T.contains(view.playerStatFiveLabel, "Max Here")
+	T.contains(view.playerStatFiveHelpText, "enemy-count versions")
+	T.equals(view.playerStatSixLabel, "")
 
 	local alice = FindPlayer(view.playerGroups, "Alice")
 	T.equals(alice.statOne, "5")
 	T.equals(alice.statFour, "3")
-	T.equals(alice.statFive, "195")
+	T.equals(alice.statFive, "65")
 	T.equals(alice.statSix, "")
+	T.equals(FindPlayer(view.playerGroups, "Bob").statFive, "20")
+	-- No clears anywhere on the ladder reads as absent, never as zero.
+	T.equals(FindPlayer(view.playerGroups, "Spectator").statFive, "-")
 end
 
 local function testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
@@ -529,7 +538,7 @@ local function testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
 	T.contains(inexact.playerStatFourHelpText, "SIMILAR")
 	T.notContains(inexact.playerStatOneHelpText, "SIMILAR")
 	T.contains(inexact.setupCaveatText, "Setup Clears")
-	T.contains(inexact.setupCaveatText, "Defeated Here")
+	T.contains(inexact.setupCaveatText, "Max Here")
 	T.contains(inexact.setupCaveatText, "not your exact lobby")
 
 	-- A raw fallback says so in its own words rather than borrowing "similar".
@@ -571,6 +580,60 @@ local function testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
 	T.equals(silentView.setupCaveatText, "")
 end
 
+local function testServedSettingEnemyCountIsPresentedAsLobbyInfo()
+	-- The per-game enemy count is constant within a setting, so "the most you
+	-- can defeat in one game here" is a fact about the served setting, not a
+	-- per-player column. It rides above the table, named per mode, and follows
+	-- the same served-setting subject as the caveat.
+	local inexact = PlayerStats.Build(response, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
+	T.truthy(inexact.hasSetupEncounterInfo)
+	T.equals(inexact.setupEncounterInfoText, "The matched setting fields 65 queens per game.")
+
+	local exactResponse = {}
+	for key, value in pairs(response) do exactResponse[key] = value end
+	exactResponse.setup_experience_context = {source = "exact", setting_hash = "query-hash-that-is-long", encounter_count = 65}
+	local exactView = PlayerStats.Build(exactResponse, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
+	T.equals(exactView.setupEncounterInfoText, "This setup fields 65 queens per game.")
+
+	-- Modes name their enemies differently, and one enemy must read singular.
+	local scavResponse = {}
+	for key, value in pairs(response) do scavResponse[key] = value end
+	scavResponse.setup_experience_context = {source = "exact", setting_hash = "h", encounter_count = 1}
+	local scavView = PlayerStats.Build(scavResponse, {ai_type = "Scavengers"}, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true})
+	T.equals(scavView.setupEncounterInfoText, "This setup fields 1 boss per game.")
+
+	-- A pre-upgrade server sends no context: the line must stay hidden rather
+	-- than invent a count, and lifetime tabs never carry it.
+	local silentResponse = {}
+	for key, value in pairs(response) do silentResponse[key] = value end
+	silentResponse.setup_experience_context = nil
+	T.falsy(PlayerStats.Build(silentResponse, request, nil, {playerTab = "achievements", sortColumn = 4, sortDescending = true}).hasSetupEncounterInfo)
+	T.falsy(PlayerStats.Build(response, request, nil, {playerTab = "encounters", sortColumn = 1, sortDescending = true}).hasSetupEncounterInfo)
+end
+
+local function testAchievementsTiesCascadeThroughLadderClearsThenBands()
+	-- Requested order: Max Here, then Setup Clears, then 30+, 25+, 20+, all
+	-- descending. Equal rungs split by clears; players with no rung at all
+	-- fall through to the difficulty bands instead of an arbitrary name sort.
+	local cascadeResponse = {players = {
+		{player_id = 1, player_name = "EqualMaxFewClears", setup_experience = {clears = 2, max_defeated = 50},
+			accomplishments = {challenges = {challenge_20_clears = 9, challenge_25_clears = 9, challenge_30_clears = 9}}},
+		{player_id = 2, player_name = "EqualMaxManyClears", setup_experience = {clears = 5, max_defeated = 50},
+			accomplishments = {challenges = {challenge_20_clears = 0, challenge_25_clears = 0, challenge_30_clears = 0}}},
+		{player_id = 3, player_name = "NoRungStrongBands", accomplishments = {challenges = {challenge_20_clears = 7, challenge_25_clears = 6, challenge_30_clears = 5}}},
+		{player_id = 4, player_name = "NoRungWeakBands", accomplishments = {challenges = {challenge_20_clears = 1, challenge_25_clears = 0, challenge_30_clears = 0}}},
+	}}
+	local view = PlayerStats.Build(cascadeResponse, request, nil, {playerTab = "achievements", sortColumn = 5, sortDescending = true})
+	local names = {}
+	for index, player in ipairs(view.playerGroups[1].players) do names[index] = player.name end
+	T.equals(names[1], "EqualMaxManyClears")
+	T.equals(names[2], "EqualMaxFewClears")
+	T.equals(names[3], "NoRungStrongBands")
+	T.equals(names[4], "NoRungWeakBands")
+	-- The default sort for the tab is the ladder itself.
+	T.equals(PlayerStats.DefaultSortColumn("achievements", request), 5)
+end
+
 local function testWideColumnsAreSortable()
 	-- Column 4 is one of the new maxima, so this fails outright if the widened
 	-- columns are not wired into the sort comparator.
@@ -594,9 +657,11 @@ testUncataloguedOptionsAreExplainedNotSilent()
 testUnsupportedEvidenceNamesWhatThePlayerCanRecognise()
 testEncountersReportsWhatTheDataMeasuresAcrossSixColumns()
 testNarrowTabsKeepExactlyThreeColumns()
-testSettingAchievementsRendersFiveColumnsAndStopsThere()
+testSettingAchievementsEndOnTheSetupLadder()
 testServedSettingColumnsAreMarkedWhenTheyDescribeAnotherSetting()
 testWideColumnsAreSortable()
+testAchievementsTiesCascadeThroughLadderClearsThenBands()
+testServedSettingEnemyCountIsPresentedAsLobbyInfo()
 testDiagnosticsUseOneNarrowEvidenceContract()
 testErrorsAndFreshnessArePresentationState()
 testFeatureTabsSortingAndHelpMatchPresentation()

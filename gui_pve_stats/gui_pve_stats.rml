@@ -155,6 +155,7 @@
                     <div class="pve-stats-tab" data-tab="adventures" data-class-active="playerTab == 'adventures'" onclick="widget:SetPlayerTab(event)">Games &amp; Maps</div>
                 </div>
                 <div class="pve-stats-setup-caveat" data-if="scopedColumnsAreInexact">{{setupCaveatText}}</div>
+                <div class="pve-stats-setup-info" data-if="hasSetupEncounterInfo">{{setupEncounterInfoText}}</div>
                 <div class="table-header">
                     <span class="pve-stats-th-player pve-stats-sortable" data-column="0" data-class-active-sort="sortColumn == 0" onclick="widget:SortPlayerColumn(event)">{{playerHeaderLabel}}</span>
                     <span class="pve-stats-th-stat pve-stats-sortable pve-stats-tooltip-anchor" data-column="1" data-class-active-sort="sortColumn == 1" onclick="widget:SortPlayerColumn(event)">{{playerStatOneLabel}}<span class="pve-stats-tooltip pve-stats-tooltip-above">{{playerStatOneHelpText}}</span></span>

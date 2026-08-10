@@ -62,6 +62,19 @@ local function CurrentAiColumn(request)
 	return 1
 end
 
+-- The served setting's enemies, named the way the mode's players say them.
+-- Defaults to Raptors for the same reason CurrentAiColumn defaults to column 1.
+local function EnemyNoun(request, count)
+	local aiType = string.lower(tostring(request and request.ai_type or ""))
+	if aiType == "scavengers" then
+		return count == 1 and "boss" or "bosses"
+	end
+	if aiType == "barbarian" then
+		return count == 1 and "Barbarian AI" or "Barbarian AIs"
+	end
+	return count == 1 and "queen" or "queens"
+end
+
 local function SetupExperience(player)
 	local value = player and player.setup_experience
 	return type(value) == "table" and value or {}
@@ -73,7 +86,7 @@ local DEFINITIONS = {
 	-- Those last two are the only per-player figures in the panel scoped to the
 	-- current lobby, which is why they carry their own source marking.
 	achievements = {
-		labels = {"20+ Clears", "25+ Clears", "30+ Clears", "Setup Clears", "Defeated Here"},
+		labels = {"20+ Clears", "25+ Clears", "30+ Clears", "Setup Clears", "Max Here"},
 		help = {
 			"Eligible wins at governed challenge 20 or above: modeled population win chance at most 41.2%.",
 			"Eligible wins at governed challenge 25 or above: modeled population win chance at most 26.5%.",
@@ -81,7 +94,7 @@ local DEFINITIONS = {
 			-- Overwritten per response by SetupSourceHelp; this is the exact-match
 			-- wording and the fallback when no response has arrived yet.
 			"Eligible victories on this exact lobby setup, at this team size and AI count. Counts only curated eligible games, so it sits below the lifetime totals on Encounters.",
-			"Running total of enemies defeated across all the wins counted under Setup Clears, on this exact setup. Each win adds this setup's per-game enemy count: one win against 5 queens adds 5.",
+			"The most enemies per game this player has beaten on this setup, comparing its enemy-count versions: clearing both the 20 and 50 queen versions shows 50.",
 		},
 		values = function(player)
 			local challenges = AccomplishmentGroup(player, "challenges")
@@ -91,10 +104,14 @@ local DEFINITIONS = {
 				challenges.challenge_25_clears,
 				challenges.challenge_30_clears,
 				experience.clears,
-				experience.defeated,
+				experience.max_defeated,
 			}
 		end,
-		defaultSortColumn = function() return 4 end,
+		defaultSortColumn = function() return 5 end,
+		-- Ties on the sorted column resolve through this order: the ladder rung
+		-- first, then clears on this setup, then the difficulty bands hardest
+		-- first.
+		sortCascade = {5, 4, 3, 2, 1},
 		-- First column whose scope is the served setting rather than a lifetime
 		-- total. Columns from here on get the source colouring, the asterisk and
 		-- the per-source help text.
@@ -168,15 +185,15 @@ end
 local SETUP_SOURCE_HELP = {
 	exact = {
 		"Eligible victories on this exact lobby setup, at this team size and AI count. Counts only curated eligible games, so it sits below the lifetime totals on Encounters.",
-		"Running total of enemies defeated across all the wins counted under Setup Clears, on this exact setup. Each win adds this setup's per-game enemy count: one win against 5 queens adds 5.",
+		"The most enemies per game this player has beaten on this setup, comparing its enemy-count versions: clearing both the 20 and 50 queen versions shows 50.",
 	},
 	similar = {
 		"Eligible victories on a SIMILAR setting matched by effect vector, not your exact lobby, at this team size and AI count. Counts only curated eligible games.",
-		"Running total of enemies defeated across all the wins counted under Setup Clears, on the SIMILAR matched setting rather than your exact lobby. Each win adds that setting's own per-game enemy count.",
+		"The most enemies per game this player has beaten on the SIMILAR matched setting's enemy-count versions, not your exact lobby.",
 	},
 	raw_fallback = {
 		"Eligible victories on the CLOSEST RAW setting match, not your exact lobby, at this team size and AI count. Counts only curated eligible games.",
-		"Running total of enemies defeated across all the wins counted under Setup Clears, on the CLOSEST RAW matched setting rather than your exact lobby. Each win adds that setting's own per-game enemy count.",
+		"The most enemies per game this player has beaten on the CLOSEST RAW matched setting's enemy-count versions, not your exact lobby.",
 	},
 }
 
@@ -220,19 +237,36 @@ local function StatValue(player, definition, column)
 	return tonumber(definition.values(player)[column])
 end
 
+-- One column's verdict, or nil on a tie so the caller can consult the next
+-- key. A missing value sorts after every present one regardless of direction.
+local function StatOrder(left, right, definition, column, descending)
+	local leftValue = StatValue(left, definition, column)
+	local rightValue = StatValue(right, definition, column)
+	if leftValue == nil and rightValue == nil then return nil end
+	if leftValue == nil then return false end
+	if rightValue == nil then return true end
+	if leftValue == rightValue then return nil end
+	if descending then return leftValue > rightValue end
+	return leftValue < rightValue
+end
+
 local function SortPlayers(players, definition, sortColumn, descending)
 	table.sort(players, function(left, right)
 		if sortColumn == 0 then
 			if descending then return PlayerComesBefore(right, left) end
 			return PlayerComesBefore(left, right)
 		end
-		local leftValue = StatValue(left, definition, sortColumn)
-		local rightValue = StatValue(right, definition, sortColumn)
-		if leftValue == nil and rightValue ~= nil then return false end
-		if leftValue ~= nil and rightValue == nil then return true end
-		if leftValue ~= nil and rightValue ~= nil and leftValue ~= rightValue then
-			if descending then return leftValue > rightValue end
-			return leftValue < rightValue
+		local order = StatOrder(left, right, definition, sortColumn, descending)
+		if order ~= nil then return order end
+		-- Ties fall through the tab's declared cascade before names, so equal
+		-- ladder rungs are split by clears and then the difficulty bands. The
+		-- clicked column stays primary; the cascade only decides what it left
+		-- undecided.
+		for _, column in ipairs(definition.sortCascade or {}) do
+			if column ~= sortColumn then
+				order = StatOrder(left, right, definition, column, descending)
+				if order ~= nil then return order end
+			end
 		end
 		return PlayerComesBefore(left, right)
 	end)
@@ -391,6 +425,17 @@ function PlayerStatsFactory.New(Display)
 			end
 			caveatText = table.concat(matched, " and ") .. " are for the matched setting, not your exact lobby."
 		end
+		-- The per-game enemy count is constant within a setting, so "the most
+		-- you can defeat in one game here" is a property of the served setting
+		-- rather than a per-player column. One neutral line above the table
+		-- carries it for the whole lobby.
+		local encounterInfoText = ""
+		local experienceContext = SetupExperienceContext(response)
+		local encounterCount = experienceContext and tonumber(experienceContext.encounter_count) or nil
+		if scopedColumn ~= nil and encounterCount ~= nil and encounterCount > 0 then
+			local subject = scopedColumnsAreInexact and "The matched setting fields " or "This setup fields "
+			encounterInfoText = subject .. Display.Number(encounterCount, 0) .. " " .. EnemyNoun(request, encounterCount) .. " per game."
+		end
 		return {
 			playerTab = tab,
 			playerHeaderLabel = SortLabel("Player", 0, sortColumn, descending),
@@ -424,6 +469,8 @@ function PlayerStatsFactory.New(Display)
 			hasScopedStatColumns = scopedColumn ~= nil,
 			scopedColumnsAreInexact = scopedColumnsAreInexact,
 			setupCaveatText = caveatText,
+			hasSetupEncounterInfo = encounterInfoText ~= "",
+			setupEncounterInfoText = encounterInfoText,
 			statColumnCount = columns,
 			showSpectators = options.showSpectators == true,
 			sortColumn = sortColumn,
