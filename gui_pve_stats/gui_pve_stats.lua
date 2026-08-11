@@ -16,7 +16,7 @@ function widget:GetInfo()
 	}
 end
 
-local LOG_SECTION = "pve_stats_rml"
+local LOG_SECTION = "gui_pve_stats"
 local LOG_PREFIX = "pve_stats"
 local MODEL_NAME = "pve_stats_model"
 local WIDGET_PATH = "LuaUI/Widgets/gui_pve_stats/"
@@ -336,6 +336,16 @@ local function LogMessage(message)
 	end
 end
 
+local function DisableWhenAiIsMissing(widgetInstance)
+	local aiType, detection = Request.DetectAiType(Spring)
+	if aiType or detection ~= "missing_ai_type" then return false end
+
+	state.windowClosed = true
+	LogMessage("No AI detected; disabling widget.")
+	if widgetHandler and widgetHandler.RemoveWidget then widgetHandler:RemoveWidget(widgetInstance) end
+	return true
+end
+
 local function DebugLog(message)
 	if GetConfigInt("PveStatsDebugLog", DEFAULT_DEBUG_LOG) == 1 then LogMessage(message) end
 end
@@ -567,6 +577,8 @@ local function ReleaseWindowResources()
 end
 
 function widget:Initialize()
+	if DisableWhenAiIsMissing(self) then return false end
+
 	state.windowClosed = false
 	state.gameId = Request.CurrentGameId(Spring, Game)
 	state.gameIdRefreshHandled = state.gameId ~= nil or SafeCall(Spring.IsReplay) == true

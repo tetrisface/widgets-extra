@@ -9,9 +9,16 @@ local function InstallEnvironment(options)
 		encodedRequests = {},
 		socketCreates = 0,
 		removedModels = 0,
+		removeWidgetCalls = 0,
 	}
 	_G.widget = {}
 	_G.WG = {}
+	_G.widgetHandler = {
+		RemoveWidget = function(_, removedWidget)
+			environment.removeWidgetCalls = environment.removeWidgetCalls + 1
+			environment.removedWidget = removedWidget
+		end,
+	}
 	_G.Game = {mapName = "Test Map", gameID = "game-id", modOptions = {}}
 	_G.Json = {
 		encode = function(value)
@@ -79,7 +86,7 @@ local function InstallEnvironment(options)
 		IsReplay = function() return options.isReplay == true end,
 		Utilities = {
 			Gametype = {
-				IsRaptors = function() return true end,
+				IsRaptors = function() return options.noAi ~= true end,
 				IsScavengers = function() return false end,
 			},
 		},
@@ -155,6 +162,21 @@ local function LoadWidget(options)
 	local environment = InstallEnvironment(options)
 	dofile(root .. "gui_pve_stats.lua")
 	return _G.widget, environment
+end
+
+local function testPvpDisablesBeforeCreatingTheWindow()
+	local loadedWidget, environment = LoadWidget({autoFetch = true, luaSocket = true, noAi = true})
+	local initialized = loadedWidget:Initialize()
+	T.equals(initialized, false)
+	T.equals(environment.removeWidgetCalls, 1)
+	T.equals(environment.removedWidget, loadedWidget)
+	T.contains(environment.lastLog, "[gui_pve_stats]")
+	T.contains(environment.lastLog, "No AI detected")
+	T.contains(environment.lastLog, "disabling widget")
+	T.equals(environment.model, nil)
+	T.falsy(environment.document.shown)
+	T.equals(environment.socketCreates, 0)
+	T.equals(_G.WG.PveStatsRml, nil)
 end
 
 local function testGameOverDeliveryContinuesAfterPanelClose()
@@ -420,6 +442,7 @@ local function testEngineGlobalsStayAtTheCompositionBoundary()
 end
 
 testInitializationAndPublicApi()
+testPvpDisablesBeforeCreatingTheWindow()
 testGameOverDeliveryContinuesAfterPanelClose()
 testScheduledAndManualFetchUseTheDisabledGate()
 testCopyFeedbackUsesNonLayoutTooltipState()

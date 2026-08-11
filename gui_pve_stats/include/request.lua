@@ -191,8 +191,7 @@ local function DetectAiTypeWithSource(springApi)
 end
 
 function Request.DetectAiType(springApi)
-	local aiType = DetectAiTypeWithSource(springApi)
-	return aiType
+	return DetectAiTypeWithSource(springApi)
 end
 
 local function CollectPlayers(springApi)
