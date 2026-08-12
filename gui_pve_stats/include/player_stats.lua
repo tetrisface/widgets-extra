@@ -92,9 +92,10 @@ local DEFINITIONS = {
 			"Eligible wins at governed challenge 25 or above: modeled population win chance at most 26.5%.",
 			"Eligible wins at governed challenge 30 or above: modeled population win chance at most 11.8%.",
 			-- Overwritten per response by SetupSourceHelp; this is the exact-match
-			-- wording and the fallback when no response has arrived yet.
+			-- wording and the fallback when no response has arrived yet, so it
+			-- carries EnemyNoun's Raptors default already spelled out.
 			"Eligible victories on this exact lobby setup, at this team size and AI count. Counts only curated eligible games, so it sits below the lifetime totals on Encounters.",
-			"The most enemies per game this player has beaten on this setup, comparing its enemy-count versions: clearing both the 20 and 50 queen versions shows 50.",
+			"The highest enemy count this player has cleared among this setup's enemy-count versions. For example, a player who has cleared both a 20-queen and a 50-queen version of the setup shows 50.",
 		},
 		values = function(player)
 			local challenges = AccomplishmentGroup(player, "challenges")
@@ -215,18 +216,21 @@ end
 -- The source values the server publishes for the setting it actually served.
 -- Anything other than "exact" means the figures describe a neighbouring
 -- setting and must say so.
+-- The Max Here entries are templates: both %s slots take the served mode's
+-- singular enemy noun (queen/boss/Barbarian AI), filled by HelpText. The 20
+-- and 50 are illustrative example versions, not anything from the data.
 local SETUP_SOURCE_HELP = {
 	exact = {
 		"Eligible victories on this exact lobby setup, at this team size and AI count. Counts only curated eligible games, so it sits below the lifetime totals on Encounters.",
-		"The most enemies per game this player has beaten on this setup, comparing its enemy-count versions: clearing both the 20 and 50 queen versions shows 50.",
+		"The highest enemy count this player has cleared among this setup's enemy-count versions. For example, a player who has cleared both a 20-%s and a 50-%s version of the setup shows 50.",
 	},
 	similar = {
 		"Eligible victories on a SIMILAR setting matched by effect vector, not your exact lobby, at this team size and AI count. Counts only curated eligible games.",
-		"The most enemies per game this player has beaten on the SIMILAR matched setting's enemy-count versions, not your exact lobby.",
+		"The highest enemy count this player has cleared among the SIMILAR matched setting's enemy-count versions, not your exact lobby. For example, a player who has cleared both a 20-%s and a 50-%s version of the setting shows 50.",
 	},
 	raw_fallback = {
 		"Eligible victories on the CLOSEST RAW setting match, not your exact lobby, at this team size and AI count. Counts only curated eligible games.",
-		"The most enemies per game this player has beaten on the CLOSEST RAW matched setting's enemy-count versions, not your exact lobby.",
+		"The highest enemy count this player has cleared among the CLOSEST RAW matched setting's enemy-count versions, not your exact lobby. For example, a player who has cleared both a 20-%s and a 50-%s version of the setting shows 50.",
 	},
 }
 
@@ -396,6 +400,10 @@ function PlayerStatsFactory.New(Display)
 			if offset == 1 then
 				local info = EncounterInfo(response, request)
 				if info ~= "" then text = text .. " " .. info end
+			end
+			if offset == 2 then
+				local noun = EnemyNoun(request, 1)
+				text = string.format(text, noun, noun)
 			end
 			return text
 		end
