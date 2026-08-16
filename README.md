@@ -7,6 +7,7 @@ This repository contains BAR widgets that are intentionally kept out of the comm
 Each widget lives in its own top-level folder. That keeps their code, resources, tests, and install notes grouped together.
 
 - [`gui_pve_stats/`](./gui_pve_stats)
+- [`gui_raptor_panel_aggro/`](./gui_raptor_panel_aggro)
 
 ## Current intent
 
