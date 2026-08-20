@@ -1,0 +1,212 @@
+<rml>
+    <head>
+        <title>Unit Navigator</title>
+        <link rel="stylesheet" href="gui_unit_navigator.rcss" type="text/rcss" />
+    </head>
+    <body id="unit-navigator-body">
+        <div id="unit-navigator-root" data-model="unit_navigator_model">
+            <div id="unit-navigator-overlay" class="overlay" data-class-hidden="!overlayVisible">
+                <div id="unit-navigator-overlay-header" class="overlay-header">
+                    <div class="activation-copy">
+                        <span class="eyebrow">UNIT NAVIGATOR</span>
+                        <span data-if="!subgroupMode">{{activationCommitPrefix}}</span>
+                        <span data-if="!subgroupMode" class="inline-key">{{activationKeyLabel}}</span>
+                        <span data-if="!subgroupMode">{{activationCommitSuffix}}</span>
+                        <span data-if="subgroupMode">SUBGROUP MODE · choose Q W E / A S D</span>
+                    </div>
+                    <div class="header-actions">
+                        <span class="hint"><span class="inline-key">{{cancelKeyLabel}}</span> / RMB cancel</span>
+                        <button class="gear" onclick="widget:OpenSettings(event)">SETTINGS</button>
+                    </div>
+                </div>
+
+                <div id="unit-navigator-grid-shell" class="grid-shell">
+                    <div data-for="card : cards"
+                         class="navigator-card"
+                         data-class-empty="card.isEmpty"
+                         data-class-disabled="card.isDisabled"
+                         data-class-focused="card.isFocused"
+                         data-class-pinned="card.isPinned"
+                         data-attr-data-slot="card.slot"
+                         data-style-background-color="glassColor"
+                         onmouseover="widget:HoverCard(event)"
+                         onclick="widget:ClickCard(event)">
+                        <div class="card-header" data-if="!card.isEmpty">
+                            <div class="unit-strip">
+                                <div data-for="chip : card.unitChips"
+                                     class="unit-chip"
+                                     data-class-hidden="!chip.isVisible"
+                                     data-class-more-chip="chip.isMore">
+                                    <img data-if="chip.hasImage" data-attr-src="chip.image" data-attr-alt="chip.label" />
+                                    <span class="chip-count">{{chip.countText}}</span>
+                                </div>
+                            </div>
+                            <div class="card-title">
+                                <span class="task-label">{{card.taskLabel}}</span>
+                                <span class="unit-count">{{card.countText}}</span>
+                            </div>
+                            <button class="pin-button"
+                                    data-class-active="card.isPinned"
+                                    data-attr-data-slot="card.slot"
+                                    onclick="widget:TogglePin(event)">PIN</button>
+                            <span class="card-key">{{card.keyLabel}}</span>
+                        </div>
+
+                        <div class="card-body" data-if="!card.isEmpty">
+                            <div class="tactical-view">
+                                <texture class="terrain" src="$minimap" data-style-opacity="terrainOpacity" />
+                                <div class="terrain-scanlines"></div>
+                                <div data-for="marker : card.markers"
+                                     class="unit-marker"
+                                     data-class-hidden="!marker.isVisible"
+                                     data-class-group-unit="marker.isGroup"
+                                     data-style-left="marker.left"
+                                     data-style-top="marker.top"
+                                     data-style-opacity="marker.opacity"></div>
+                                <div data-for="target : card.targets"
+                                     class="target-marker"
+                                     data-class-hidden="!target.isVisible"
+                                     data-class-build-target="target.isBuild"
+                                     data-style-left="target.left"
+                                     data-style-top="target.top"></div>
+                            </div>
+
+                            <div class="subgroup-grid">
+                                <div data-for="subgroup : card.subgroups"
+                                     class="subgroup-tile"
+                                     data-class-hidden="!subgroup.isVisible"
+                                     data-class-focused="subgroup.isFocused"
+                                     data-class-more="subgroup.isMore"
+                                     data-class-skipped="subgroup.isSkipped"
+                                     data-attr-data-slot="card.slot"
+                                     data-attr-data-index="subgroup.index"
+                                     onmouseover="widget:HoverSubgroup(event)"
+                                     onclick="widget:ClickSubgroup(event)">
+                                    <span class="subgroup-key">{{subgroup.keyLabel}}</span>
+                                    <texture data-if="subgroup.hasImage" class="subgroup-image" data-attr-src="subgroup.image" />
+                                    <span data-if="!subgroup.hasImage" class="subgroup-icon">{{subgroup.iconText}}</span>
+                                    <span class="subgroup-label">{{subgroup.label}}</span>
+                                    <span class="subgroup-count">{{subgroup.countText}}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="footer-hint">Grid keys move between cards. Press the focused card key again to enter its subgroups. Move outside the guard briefly to cancel.</div>
+            </div>
+
+            <div id="unit-navigator-settings" class="settings-backdrop" data-class-hidden="!settingsVisible" onkeydowncapture="widget:CaptureRmlKey(event)" onkeyupcapture="widget:ReleaseRmlKey(event)">
+                <div class="settings-panel" data-style-background-color="settingsGlassColor">
+                    <div class="settings-header">
+                        <div>
+                            <div class="eyebrow">UNIT NAVIGATOR</div>
+                            <div class="settings-title">Settings</div>
+                        </div>
+                        <button class="close-button" onclick="widget:CloseSettings(event)">CLOSE</button>
+                    </div>
+
+					<div class="settings-notice" data-class-hidden="!settingsNoticeVisible">{{settingsNoticeText}}</div>
+					<div class="capture-banner" data-class-hidden="!captureVisible">{{captureText}}</div>
+
+                    <div class="settings-columns">
+                        <div class="settings-column">
+                            <div class="settings-section">
+                                <div class="section-title">Shortcuts</div>
+                                <div class="setting-row setting-row-stack">
+                                    <span>Activation keys</span>
+                                    <div class="activation-binding-list">
+                                        <div data-for="binding : activationBindingRows"
+                                             class="activation-binding-row"
+                                             data-class-hidden="!binding.isVisible">
+                                            <button class="activation-key-button"
+                                                    data-attr-data-target="binding.captureTarget"
+                                                    data-attr-data-label="binding.captureLabel"
+                                                    onclick="widget:BeginShortcutCapture(event)">{{binding.keyLabel}}</button>
+                                            <button class="activation-mode-button"
+                                                    data-attr-data-index="binding.index"
+                                                    onclick="widget:CycleActivationMode(event)">{{binding.modeLabel}}</button>
+                                            <button class="activation-remove-button"
+                                                    data-attr-data-index="binding.index"
+                                                    onclick="widget:RemoveActivationBinding(event)">REMOVE</button>
+                                        </div>
+                                        <button class="add-activation-button"
+                                                data-class-hidden="!canAddActivationBinding"
+                                                data-target="activation_add"
+                                                data-label="new activation key"
+                                                onclick="widget:BeginShortcutCapture(event)">ADD KEY</button>
+                                    </div>
+                                    <span class="setting-help">Hold opens on key-down and commits on release. Press + release opens on the first tap and commits on the next tap.</span>
+                                </div>
+                                <div class="setting-row">
+                                    <span>Cancel</span>
+                                    <button data-target="cancel" data-label="cancel" onclick="widget:BeginShortcutCapture(event)">{{cancelKeyLabel}}</button>
+                                </div>
+                                <div class="setting-row setting-row-stack">
+                                    <span>Grid traversal</span>
+                                    <div class="shortcut-grid">
+                                        <button data-target="grid1" data-label="grid slot 1" onclick="widget:BeginShortcutCapture(event)">{{gridKeyOne}}</button>
+                                        <button data-target="grid2" data-label="grid slot 2" onclick="widget:BeginShortcutCapture(event)">{{gridKeyTwo}}</button>
+                                        <button data-target="grid3" data-label="grid slot 3" onclick="widget:BeginShortcutCapture(event)">{{gridKeyThree}}</button>
+                                        <button data-target="grid4" data-label="grid slot 4" onclick="widget:BeginShortcutCapture(event)">{{gridKeyFour}}</button>
+                                        <button data-target="grid5" data-label="grid slot 5" onclick="widget:BeginShortcutCapture(event)">{{gridKeyFive}}</button>
+                                        <button data-target="grid6" data-label="grid slot 6" onclick="widget:BeginShortcutCapture(event)">{{gridKeySix}}</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-section">
+                                <div class="section-title">Traversal and glass</div>
+                                <div class="setting-row"><span>Camera preview</span><button onclick="widget:ToggleCameraPreview(event)">{{cameraPreviewLabel}}</button></div>
+                                <div class="setting-row"><span>Camera transition</span><div class="stepper"><button data-setting="cameraTransitionSeconds" data-direction="-1" onclick="widget:AdjustSetting(event)">-</button><span>{{cameraTransitionLabel}}</span><button data-setting="cameraTransitionSeconds" data-direction="1" onclick="widget:AdjustSetting(event)">+</button></div></div>
+                                <div class="setting-row"><span>Mouse-leave guard</span><div class="stepper"><button data-setting="mouseLeaveGuardDp" data-direction="-1" onclick="widget:AdjustSetting(event)">-</button><span>{{mouseLeaveGuardLabel}}</span><button data-setting="mouseLeaveGuardDp" data-direction="1" onclick="widget:AdjustSetting(event)">+</button></div></div>
+                                <div class="setting-row"><span>Cancellation delay</span><div class="stepper"><button data-setting="mouseLeaveDelaySeconds" data-direction="-1" onclick="widget:AdjustSetting(event)">-</button><span>{{mouseLeaveDelayLabel}}</span><button data-setting="mouseLeaveDelaySeconds" data-direction="1" onclick="widget:AdjustSetting(event)">+</button></div></div>
+                                <div class="setting-row"><span>Glass opacity</span><div class="stepper"><button data-setting="glassOpacity" data-direction="-1" onclick="widget:AdjustSetting(event)">-</button><span>{{glassOpacityLabel}}</span><button data-setting="glassOpacity" data-direction="1" onclick="widget:AdjustSetting(event)">+</button></div></div>
+                                <div class="setting-row"><span>Terrain opacity</span><div class="stepper"><button data-setting="terrainOpacity" data-direction="-1" onclick="widget:AdjustSetting(event)">-</button><span>{{terrainOpacityLabel}}</span><button data-setting="terrainOpacity" data-direction="1" onclick="widget:AdjustSetting(event)">+</button></div></div>
+                                <div class="setting-row"><span>Other-unit opacity</span><div class="stepper"><button data-setting="nonGroupUnitOpacity" data-direction="-1" onclick="widget:AdjustSetting(event)">-</button><span>{{nonGroupOpacityLabel}}</span><button data-setting="nonGroupUnitOpacity" data-direction="1" onclick="widget:AdjustSetting(event)">+</button></div></div>
+                            </div>
+                        </div>
+
+                        <div class="settings-column">
+                            <div class="settings-section">
+                                <div class="section-title">Advanced grouping (global)</div>
+                                <div class="family-filters">
+                                    <button data-family="build" onclick="widget:ToggleCommandFamily(event)">{{buildFamilyLabel}}</button>
+                                    <button data-family="move" onclick="widget:ToggleCommandFamily(event)">{{moveFamilyLabel}}</button>
+                                    <button data-family="attack" onclick="widget:ToggleCommandFamily(event)">{{attackFamilyLabel}}</button>
+                                    <button data-family="patrol" onclick="widget:ToggleCommandFamily(event)">{{patrolFamilyLabel}}</button>
+                                    <button data-family="other" onclick="widget:ToggleCommandFamily(event)">{{otherFamilyLabel}}</button>
+                                </div>
+                                <div class="setting-row"><span>Queue equivalence</span><button class="wide-button" onclick="widget:CycleQueuePolicy(event)">{{queuePolicyLabel}}</button></div>
+                                <div class="setting-row"><span>Formation batch window</span><div class="stepper"><button data-setting="formationBatchWindowFrames" data-direction="-1" onclick="widget:AdjustSetting(event)">-</button><span>{{formationWindowLabel}}</span><button data-setting="formationBatchWindowFrames" data-direction="1" onclick="widget:AdjustSetting(event)">+</button></div></div>
+                                <div class="setting-row"><span>Build-position tolerance</span><div class="stepper"><button data-setting="buildPositionTolerance" data-direction="-1" onclick="widget:AdjustSetting(event)">-</button><span>{{buildToleranceLabel}}</span><button data-setting="buildPositionTolerance" data-direction="1" onclick="widget:AdjustSetting(event)">+</button></div></div>
+                                <div class="contract-note">Build queues use unordered multisets of building type, normalized position, facing, and duplicate count. Other queues preserve order. Timestamps never split equivalent queues.</div>
+                            </div>
+
+                            <div class="settings-section pinned-section">
+                                <div class="section-title">Pinned group definitions</div>
+                                <div class="empty-note" data-class-hidden="hasPinnedRows">Pin a card to edit its match-local population and split strategy.</div>
+                                <div data-for="pin : pinnedRows" class="pinned-row">
+                                    <div class="pinned-row-title"><span class="inline-key">{{pin.keyLabel}}</span><span>{{pin.taskLabel}}</span></div>
+                                    <div class="pinned-controls">
+                                        <button data-attr-data-slot="pin.slot" onclick="widget:CyclePinnedPopulation(event)">{{pin.populationLabel}}</button>
+                                        <button data-attr-data-slot="pin.slot" onclick="widget:CyclePinnedSplit(event)">{{pin.splitLabel}}</button>
+                                    </div>
+                                    <div class="exception-controls">
+                                        <button data-attr-data-slot="pin.slot" onclick="widget:SetPinnedIncludes(event)">Include selection ({{pin.includeCount}})</button>
+                                        <button data-attr-data-slot="pin.slot" onclick="widget:SetPinnedExcludes(event)">Exclude selection ({{pin.excludeCount}})</button>
+                                        <button data-attr-data-slot="pin.slot" onclick="widget:ClearPinnedExceptions(event)">Clear</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-footer">
+                        <span>Human gate: CommandNotify selection. Trusted adapters may use RecordBatch({humanIssued=true, ...}).</span>
+                        <button onclick="widget:RestoreDefaults(event)">RESTORE DEFAULTS</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+</rml>
