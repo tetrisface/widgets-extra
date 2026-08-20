@@ -2,6 +2,7 @@
 -- GitHub: https://github.com/tetrisface/widgets-extra/tree/main/gui_raptor_panel_aggro
 
 local Utilities = (BAR and BAR.Utilities) or Spring.Utilities
+local I18N = (BAR and BAR.I18N) or Spring.I18N
 
 if not Utilities.Gametype.IsRaptors() and not Utilities.Gametype.IsScavengers() then
 	return false
@@ -23,7 +24,6 @@ end
 
 VFS.Include('luaui/Headers/keysym.h.lua')
 local panelTexture = ':n:LuaUI/Images/raptorpanel.tga'
-local I18N = Spring.I18N
 local isRaptors = Utilities.Gametype.IsRaptors()
 local useWaveMsg = isRaptors and VFS.Include('LuaRules/Configs/raptor_spawn_defs.lua').useWaveMsg or false
 local modOptions = Spring.GetModOptions()
@@ -546,7 +546,7 @@ local function CreatePanelDisplayList()
 
 			if nBosses > 1 and gameInfo.raptorQueensKilled then
 				printPanel(
-					Spring.I18N('ui.raptors.queensKilled', {nKilled = gameInfo.raptorQueensKilled, nTotal = nBosses}),
+					I18N('ui.raptors.queensKilled', {nKilled = gameInfo.raptorQueensKilled, nTotal = nBosses}),
 					panelMarginX,
 					PanelRow(2)
 				)
