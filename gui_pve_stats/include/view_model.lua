@@ -5,7 +5,7 @@ local ViewModelFactory = {}
 -- obtained" -- so it must never be raised above this until a build carrying this
 -- number has actually been published, or every player is told to fetch a version
 -- that does not exist.
-local CLIENT_VERSION = 12
+local CLIENT_VERSION = 13
 
 local function Merge(target, source)
 	for key, value in pairs(source or {}) do
