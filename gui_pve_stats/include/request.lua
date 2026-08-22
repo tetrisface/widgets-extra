@@ -40,15 +40,70 @@ function Request.CurrentGameId(springApi, gameApi, resolvedGameId)
 	return NormalizeGameId(gameId)
 end
 
-local function CollectModOptions(springApi)
+local function CopyPrimitiveEntries(source, target)
+	local copied = 0
+	for key, value in pairs(source) do
+		local valueType = type(value)
+		if valueType == "string" or valueType == "number" or valueType == "boolean" then
+			target[key] = value
+			copied = copied + 1
+		end
+	end
+	return copied
+end
+
+local function SafeIndex(source, key)
+	local ok, value = pcall(function() return source[key] end)
+	if not ok then return nil end
+	return value
+end
+
+-- BAR overrides Spring.GetModOptions with a read-only proxy whose entries sit
+-- behind __index, so pairs() over it yields nothing; only GetModOptionsCopy is
+-- iterable, and that helper depends on shared table utilities that environment
+-- churn has broken before. Each layer below survives the previous one failing,
+-- and the caller learns which layers produced data so an empty collection is a
+-- visible degradation instead of a silent all-defaults match. Raw engine
+-- values deliberately overwrite the typed copy: they carry the start script's
+-- own spelling.
+local function CollectModOptions(springApi, modOptionDefs)
 	local modOptions = {}
-	for key, value in pairs(SafeCall(springApi, "GetModOptionsCopy") or {}) do
-		modOptions[key] = value
+	local layers = {}
+	local copied = SafeCall(springApi, "GetModOptionsCopy")
+	if type(copied) == "table" and CopyPrimitiveEntries(copied, modOptions) > 0 then
+		layers[#layers + 1] = "copy"
 	end
-	for key, value in pairs(SafeCall(springApi, "GetModOptions") or {}) do
-		modOptions[key] = value
+	local raw = SafeCall(springApi, "GetModOptions")
+	if type(raw) == "table" then
+		if CopyPrimitiveEntries(raw, modOptions) > 0 then
+			layers[#layers + 1] = "iterated"
+		end
+		if next(modOptions) == nil then
+			local metatable = type(getmetatable) == "function" and getmetatable(raw) or nil
+			local backing = type(metatable) == "table" and metatable.__index or nil
+			if type(backing) == "table" and CopyPrimitiveEntries(backing, modOptions) > 0 then
+				layers[#layers + 1] = "metatable"
+			end
+		end
+		if next(modOptions) == nil and type(modOptionDefs) == "table" then
+			-- A protected proxy still serves direct reads; the definitions file
+			-- names every key there is to read.
+			local read = 0
+			for _, definition in ipairs(modOptionDefs) do
+				local key = type(definition) == "table" and definition.key or nil
+				if key ~= nil then
+					local value = SafeIndex(raw, key)
+					local valueType = type(value)
+					if valueType == "string" or valueType == "number" or valueType == "boolean" then
+						modOptions[key] = value
+						read = read + 1
+					end
+				end
+			end
+			if read > 0 then layers[#layers + 1] = "definitions" end
+		end
 	end
-	return modOptions
+	return modOptions, #layers > 0 and table.concat(layers, "+") or "none"
 end
 
 local function ContainsFolded(value, pattern)
@@ -483,7 +538,7 @@ function Request.Wire(request)
 	return wire
 end
 
-function Request.Build(springApi, gameApi, resolvedGameId)
+function Request.Build(springApi, gameApi, resolvedGameId, modOptionDefs)
 	local aiType, aiTypeSource, enemyAiCount, enemyAiTeamIds = DetectAiTypeWithSource(springApi)
 	if not aiType then
 		return nil, aiTypeSource or "missing_ai_type"
@@ -514,11 +569,14 @@ function Request.Build(springApi, gameApi, resolvedGameId)
 		end
 	end
 
+	local gameSettings, collectionLayers = CollectModOptions(springApi, modOptionDefs)
+	local collectedCount = 0
+	for _ in pairs(gameSettings) do collectedCount = collectedCount + 1 end
 	local request = {
 		game_id = Request.CurrentGameId(springApi, gameApi, resolvedGameId),
 		ai_type = aiType,
 		map = tostring(mapName),
-		game_settings = CollectModOptions(springApi),
+		game_settings = gameSettings,
 		encounter_context = encounterContext,
 		player_names = playerNames,
 		player_ids = playerIds,
@@ -527,6 +585,8 @@ function Request.Build(springApi, gameApi, resolvedGameId)
 		_spectator_ids = playerGroups.spectator_ids,
 		_own_player_name = playerGroups.own_player_name,
 		_own_player_id = playerGroups.own_player_id,
+		_modoption_collection = collectionLayers,
+		_modoption_count = collectedCount,
 	}
 	local key, keyError = Request.Key(request)
 	if not key then

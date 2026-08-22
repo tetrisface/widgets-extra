@@ -398,6 +398,37 @@ local function testUncataloguedOptionsAreExplainedNotSilent()
 	T.equals(Diagnostics.Evidence(silent, options).unknown_settings, nil)
 end
 
+local function testUnreadableModoptionsAreExplainedNotSilent()
+	-- The widget itself can fail to read any modoptions (BAR's read-only
+	-- GetModOptions proxy with a broken GetModOptionsCopy). A confident server
+	-- match then describes an all-defaults setup, which must be said out loud
+	-- even though the server reports no degradation of its own.
+	local blind = {}
+	for key, value in pairs(request) do blind[key] = value end
+	blind._modoption_collection = "none"
+	blind._modoption_count = 0
+	local view = ViewModel.Build(response, nil, blind, nil, options)
+	T.truthy(view.isBestEffort, "an unreadable lobby must be marked best-effort")
+	T.contains(view.bestEffortText, "modoptions")
+	T.contains(view.matchHelpText, "default")
+
+	local healthyView = ViewModel.Build(response, nil, request, nil, options)
+	T.falsy(healthyView.isBestEffort, "a readable lobby must not be marked")
+
+	local degradedOptions = {}
+	for key, value in pairs(options) do degradedOptions[key] = value end
+	degradedOptions.modOptionCollection = "none"
+	T.contains(Diagnostics.Evidence(response, degradedOptions).modoption_collection, "unavailable")
+	degradedOptions.modOptionCollection = "copy"
+	degradedOptions.modOptionCount = 156
+	T.equals(
+		Diagnostics.Evidence(response, degradedOptions).modoption_collection,
+		"156 collected via copy"
+	)
+	-- Requests predating the field stay silent rather than warning falsely.
+	T.equals(Diagnostics.Evidence(response, options).modoption_collection, nil)
+end
+
 local function testUnsupportedEvidenceNamesWhatThePlayerCanRecognise()
 	-- The server discloses what the model has no trained evidence for. Two of
 	-- the names it can send are not lobby options: a whole tweak payload, and
@@ -767,6 +798,7 @@ end
 testStructuredViewModel()
 testDataModelRootSchemaIsStable()
 testUncataloguedOptionsAreExplainedNotSilent()
+testUnreadableModoptionsAreExplainedNotSilent()
 testUnsupportedEvidenceNamesWhatThePlayerCanRecognise()
 testEncountersReportsWhatTheDataMeasuresAcrossSixColumns()
 testModeTabsCascadeCurrentModeFirstThenEvidence()

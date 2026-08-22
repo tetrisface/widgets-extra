@@ -44,6 +44,82 @@ local function testBuildUsesTheLobbyDomain()
 	T.equals(request.player_names[3], "Spectator")
 	T.equals(request.player_ids[3], 303)
 	T.equals(request._own_player_id, 101)
+	T.equals(request._modoption_collection, "copy+iterated")
+	T.equals(request._modoption_count, 3)
+	T.truthy(request._request_key)
+end
+
+local function ReadOnlyProxy(backing, locked)
+	local metatable = {__index = backing, __newindex = function() error("read-only", 2) end}
+	if locked then metatable.__metatable = "locked" end
+	return setmetatable({}, metatable)
+end
+
+local function ProxySpring(backing, locked)
+	return {
+		GetModOptionsCopy = function() error("table.copy is missing") end,
+		GetModOptions = function() return ReadOnlyProxy(backing, locked) end,
+		GetPlayerList = function() return {} end,
+		Utilities = {Gametype = {IsRaptors = function() return true end, IsScavengers = function() return false end}},
+	}
+end
+
+local function testCollectionPiercesTheReadOnlyProxy()
+	-- BAR's Spring.GetModOptions returns a proxy whose entries hide behind
+	-- __index (pairs yields nothing), and GetModOptionsCopy can throw when its
+	-- table utilities go missing; the backing table on the metatable still
+	-- serves the data.
+	local request = assert(Request.Build(
+		ProxySpring({scav_difficulty = "hard", startmetal = 1000}), {mapName = "Map"}))
+	T.equals(request.game_settings.scav_difficulty, "hard")
+	T.equals(request.game_settings.startmetal, 1000)
+	T.equals(request._modoption_collection, "metatable")
+	T.equals(request._modoption_count, 2)
+end
+
+local function testCollectionReadsDefinitionKeysThroughAProtectedProxy()
+	local definitions = {
+		{key = "scav_difficulty", type = "list"},
+		{key = "startmetal", type = "number"},
+		{key = "unset_option", type = "bool"},
+		{type = "section", name = "options"},
+	}
+	local request = assert(Request.Build(
+		ProxySpring({scav_difficulty = "epic", startmetal = 500, unlisted = "invisible"}, true),
+		{mapName = "Map"}, nil, definitions))
+	T.equals(request.game_settings.scav_difficulty, "epic")
+	T.equals(request.game_settings.startmetal, 500)
+	-- Only keys the definitions name are reachable through a locked proxy.
+	T.equals(request.game_settings.unlisted, nil)
+	T.equals(request._modoption_collection, "definitions")
+	T.equals(request._modoption_count, 2)
+end
+
+local function testCollectionReportsWhenNothingIsReadable()
+	local request = assert(Request.Build(ProxySpring({}, true), {mapName = "Map"}))
+	T.equals(next(request.game_settings), nil)
+	T.equals(request._modoption_collection, "none")
+	T.equals(request._modoption_count, 0)
+	-- The degraded request still ships; the caller surfaces the shortfall.
+	T.truthy(Request.Wire(request))
+end
+
+local function testCollectionDropsNonPrimitiveValues()
+	local spring = {
+		GetModOptionsCopy = function()
+			return {good = "yes", count = 2, bad_table = {}, bad_fn = function() end}
+		end,
+		GetModOptions = function() return {} end,
+		GetPlayerList = function() return {} end,
+		Utilities = {Gametype = {IsRaptors = function() return true end, IsScavengers = function() return false end}},
+	}
+	local request = assert(Request.Build(spring, {mapName = "Map"}))
+	T.equals(request.game_settings.good, "yes")
+	T.equals(request.game_settings.count, 2)
+	T.equals(request.game_settings.bad_table, nil)
+	T.equals(request.game_settings.bad_fn, nil)
+	T.equals(request._modoption_collection, "copy")
+	-- A function value in the settings used to fail the canonical request key.
 	T.truthy(request._request_key)
 end
 
@@ -178,6 +254,10 @@ local function testPlayerColorsAreCapturedAtTheEngineBoundary()
 end
 
 testBuildUsesTheLobbyDomain()
+testCollectionPiercesTheReadOnlyProxy()
+testCollectionReadsDefinitionKeysThroughAProtectedProxy()
+testCollectionReportsWhenNothingIsReadable()
+testCollectionDropsNonPrimitiveValues()
 testGameIdFailsClosedAndReplaysOmitIt()
 testAiDetectionFailsClosedWhenNamedTeamsConflict()
 testGenericAiFallsBackToBarbarian()

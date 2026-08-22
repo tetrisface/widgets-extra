@@ -5,7 +5,7 @@ local ViewModelFactory = {}
 -- obtained" -- so it must never be raised above this until a build carrying this
 -- number has actually been published, or every player is told to fetch a version
 -- that does not exist.
-local CLIENT_VERSION = 13
+local CLIENT_VERSION = 14
 
 local function Merge(target, source)
 	for key, value in pairs(source or {}) do
@@ -162,7 +162,9 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 			view.hasError = true
 			return view
 		end
-		if not response then return view end
+		if not response then
+			return view
+		end
 
 		view.apiClientVersion = tonumber(response.client_version) or 0
 		view.noticeText = ClientUpdateNotice(response)
@@ -181,24 +183,31 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 		local currentChallenge = type(histogram) == "table" and tonumber(histogram.current_difficulty) or nil
 		local playedPercentile = type(histogram) == "table" and tonumber(histogram.current_percentile) or nil
 		view.difficultyText = currentChallenge and Display.Number(currentChallenge, 1) or "Unplaced"
-		view.exactWinsText = type(estimate) == "table" and (Display.Percent(estimate.player_win_probability) or "-") or "-"
+		view.exactWinsText = type(estimate) == "table" and (Display.Percent(estimate.player_win_probability) or "-")
+			or "-"
 		view.extendedWinsText = trainingGames and Display.Number(trainingGames, 0) or "-"
 		view.evidenceGamesText = playedPercentile and ("P" .. Display.Number(playedPercentile, 0)) or "Unplaced"
-		view.winChanceHelpText = "Estimated chance that a representative current BAR human team wins this map and effective setup. It uses team size and relevant encounter context, but not the identities or skill ratings of the players currently in the lobby."
+		view.winChanceHelpText =
+			"Estimated chance that a representative current BAR human team wins this map and effective setup. It uses team size and relevant encounter context, but not the identities or skill ratings of the players currently in the lobby."
 		view.challengeHelpText = currentChallenge
-			and ("Challenge " .. Display.Number(currentChallenge, 1) .. " is this setup's absolute difficulty on a 0-34 scale. Challenge 17 represents an estimated 50% win chance for a representative current BAR human team; higher is harder. Difficulty Percentile compares this score with eligible played games.")
+				and ("Challenge " .. Display.Number(currentChallenge, 1) .. " is this setup's absolute difficulty on a 0-34 scale. Challenge 17 represents an estimated 50% win chance for a representative current BAR human team; higher is harder. Difficulty Percentile compares this score with eligible played games.")
 			or "This setup does not have a Challenge score yet. Challenge is an absolute 0-34 difficulty score; Difficulty Percentile is the relative placement among eligible played games."
 		view.difficultyPercentileHelpText = playedPercentile
-			and ("This setup's Challenge score is harder than approximately " .. Display.Number(playedPercentile, 0) .. "% of eligible played " .. aiType .. " games. This is a relative placement, not the Challenge score itself.")
+				and ("This setup's Challenge score is harder than approximately " .. Display.Number(playedPercentile, 0) .. "% of eligible played " .. aiType .. " games. This is a relative placement, not the Challenge score itself.")
 			or ("This setup has not been placed in the eligible played " .. aiType .. " game distribution.")
 		view.trainingGamesHelpText = trainingGames
-			and (Display.Number(trainingGames, 0) .. " eligible " .. aiType .. " games were used to train this model after validity and grace-period filtering. This is overall model data, not the number of exact or nearby matches and not a confidence score.")
-			or ("Eligible " .. aiType .. " games train the model after validity and grace-period filtering. This is overall model data, not the number of exact or nearby matches and not a confidence score.")
+				and (Display.Number(trainingGames, 0) .. " eligible " .. aiType .. " games were used to train this model after validity and grace-period filtering. This is overall model data, not the number of exact or nearby matches and not a confidence score.")
+			or (
+				"Eligible "
+				.. aiType
+				.. " games train the model after validity and grace-period filtering. This is overall model data, not the number of exact or nearby matches and not a confidence score."
+			)
 		view.matchText = Diagnostics.MatchResultText(response)
 		if Diagnostics.IsClosest(response) then
 			local topMatch = response.closest_matches and response.closest_matches[1]
-			view.matchHelpText = topMatch and tostring(topMatch.match_method or "") == "raw_fallback"
-				and "Raw fallback compares available lobby fields for the setting-specific statistics and differences shown below. The overlap is not model confidence and does not determine whether either setup is harder. Match selection is separate from Win Chance."
+			view.matchHelpText = topMatch
+					and tostring(topMatch.match_method or "") == "raw_fallback"
+					and "Raw fallback compares available lobby fields for the setting-specific statistics and differences shown below. The overlap is not model confidence and does not determine whether either setup is harder. Match selection is separate from Win Chance."
 				or "Similarity summarizes the selected comparison used for the setting-specific statistics and differences shown below. A score of 1.000 is the closest possible match; it is not confidence and does not say which setup is harder. Match selection is separate from Win Chance."
 		end
 		-- A lobby option this server has not catalogued yet prevents an exact
@@ -243,9 +252,15 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 					.. (optionCount == 1 and " option" or " options")
 					.. " this lobby uses"
 			end
-			if unseenTweaks then clauses[#clauses + 1] = "no recorded game used this lobby's tweak files" end
-			if unseenSetup then clauses[#clauses + 1] = "no recorded game used this exact setup" end
-			if #clauses == 0 then clauses[1] = "no recorded games cover some of what this lobby uses" end
+			if unseenTweaks then
+				clauses[#clauses + 1] = "no recorded game used this lobby's tweak files"
+			end
+			if unseenSetup then
+				clauses[#clauses + 1] = "no recorded game used this exact setup"
+			end
+			if #clauses == 0 then
+				clauses[1] = "no recorded games cover some of what this lobby uses"
+			end
 			local summary = table.concat(clauses, ", and ")
 			view.isBestEffort = true
 			view.bestEffortText = string.upper(string.sub(summary, 1, 1))
@@ -255,6 +270,16 @@ function ViewModelFactory.New(Display, PlayerStats, Histogram, Diagnostics)
 		else
 			view.isBestEffort = false
 			view.bestEffortText = ""
+		end
+		-- Client-side degradation, independent of anything the server reports:
+		-- when the widget read no modoptions at all, even a confident "exact"
+		-- match describes an all-defaults setup, not necessarily this lobby.
+		if request and request._modoption_collection == "none" then
+			local text = "This client could not read the lobby's modoptions, so the match assumes"
+				.. " every option is at its default. Values are best-effort estimates; see Diag for details."
+			view.isBestEffort = true
+			view.bestEffortText = text
+			view.matchHelpText = (view.matchHelpText and (view.matchHelpText .. " ") or "") .. text
 		end
 		view.sourceWindowText = SourceWindowText(response, options)
 		view.hasSourceWindow = view.sourceWindowText ~= "-"

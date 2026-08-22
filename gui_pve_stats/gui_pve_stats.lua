@@ -160,8 +160,15 @@ local function LoadModOptionDefs()
 	if state.modOptionDefsLoaded then return state.modOptionDefs end
 	state.modOptionDefsLoaded = true
 	if VFS and VFS.Include then
-		local ok, definitions = pcall(VFS.Include, "gamedata/modoptions.lua")
-		if ok then state.modOptionDefs = definitions end
+		-- The definitions file has lived at both paths across archive layouts;
+		-- whichever loads first and is non-empty wins.
+		for _, path in ipairs({"gamedata/modoptions.lua", "modoptions.lua"}) do
+			local ok, definitions = pcall(VFS.Include, path)
+			if ok and type(definitions) == "table" and #definitions > 0 then
+				state.modOptionDefs = definitions
+				break
+			end
+		end
 	end
 	return state.modOptionDefs
 end
@@ -177,7 +184,7 @@ end
 
 local function BuildFetchRequest()
 	if not IsLuaSocketEnabled() then return nil, "lua_socket_disabled" end
-	return Request.Build(Spring, Game, CurrentGameId())
+	return Request.Build(Spring, Game, CurrentGameId(), LoadModOptionDefs())
 end
 
 local fetch = Fetch.New(Remote, remoteSocket, BuildFetchRequest, Request.Wire, Json)
@@ -233,6 +240,8 @@ local function ViewOptions(request)
 		sourceWindowNowSeconds = WallClockSeconds(),
 		currentGameId = CurrentGameId(),
 		sentGameId = request and request.game_id,
+		modOptionCollection = request and request._modoption_collection,
+		modOptionCount = request and request._modoption_count,
 		transportEvidence = TransportEvidence(),
 		sortColumn = state.playerSortColumn,
 		sortDescending = state.playerSortDescending,
@@ -355,6 +364,8 @@ local function DiagnosticEvidence()
 	return Diagnostics.Evidence(snapshot.lastResponse, {
 		currentGameId = CurrentGameId(),
 		sentGameId = snapshot.lastRequest and snapshot.lastRequest.game_id,
+		modOptionCollection = snapshot.lastRequest and snapshot.lastRequest._modoption_collection,
+		modOptionCount = snapshot.lastRequest and snapshot.lastRequest._modoption_count,
 		transportEvidence = TransportEvidence(),
 	})
 end

@@ -174,6 +174,19 @@ function DiagnosticsFactory.New(Display)
 			if unknown > 0 then fields[#fields + 1] = "unknown " .. tostring(math.floor(unknown)) end
 			evidence.request_fields = table.concat(fields, "; ")
 		end
+		-- Client-side collection outcome, distinct from the server-side counts
+		-- above: "provided 1" is only explainable when the panel also says the
+		-- widget read nothing from the engine.
+		local collection = options and options.modOptionCollection
+		if collection ~= nil then
+			if tostring(collection) == "none" then
+				evidence.modoption_collection = "unavailable — request assumed default settings"
+			else
+				local count = tonumber(options.modOptionCount) or 0
+				evidence.modoption_collection = tostring(math.floor(count))
+					.. " collected via " .. tostring(collection)
+			end
+		end
 		-- Older servers omit these; absence must read as "nothing to report".
 		local degradation = response and response.degradation
 		if type(degradation) == "table" then
@@ -232,6 +245,7 @@ function DiagnosticsFactory.New(Display)
 		AddRow(rows, "Match", evidence.match_summary and (string.gsub(evidence.match_summary, "^Match: ", "", 1)))
 		AddRow(rows, "Raw overlap", evidence.raw_overlap)
 		AddRow(rows, "Request fields", evidence.request_fields)
+		AddRow(rows, "Modoptions", evidence.modoption_collection)
 		AddRow(rows, "Uncatalogued", evidence.unknown_settings)
 		AddRow(rows, "No evidence for", evidence.unsupported_settings)
 		local http = {}
@@ -281,6 +295,7 @@ function DiagnosticsFactory.New(Display)
 			" request_bytes=", tostring(evidence.request_bytes or 0),
 			" response_bytes=", tostring(evidence.response_bytes or 0),
 			" http_status=", tostring(evidence.http_status or "-"),
+			" modoptions=", tostring(evidence.modoption_collection or "-"),
 		})
 	end
 
